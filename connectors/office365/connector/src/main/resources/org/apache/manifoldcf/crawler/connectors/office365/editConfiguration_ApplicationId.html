@@ -1,0 +1,25 @@
+#if($TABNAME == $ResourceBundle.getString('office365.ApplicationId'))
+
+<table class="displaytable">
+     <tr><td class="separator" colspan="2"><hr/></td></tr>
+     <tr>
+          <td class="description">$Encoder.attributeEscape($ResourceBundle.getString('office365.ClientIdColon'))</td>
+          <td class="value"><input type="text" size="32" name="client_id" value="$CLIENT_ID"/></td>
+     </tr>
+     <tr>
+          <td class="description">$Encoder.attributeEscape($ResourceBundle.getString('office365.TenantIdColon'))</td>
+          <td class="value"><input type="text" size="32" name="tenant_id" value="$TENANT_ID"/></td>
+     </tr>
+     <tr>
+          <td class="description">$Encoder.attributeEscape($ResourceBundle.getString('office365.ClientSecretColon'))</td>
+          <td class="value"><input type="text" size="32" name="client_secret" value="$CLIENT_SECRET"/></td>
+     </tr>
+</table>
+
+#else
+
+<input type="hidden" name="tenant_id" value="$TENANT_ID" />
+<input type="hidden" name="client_id" value="$CLIENT_ID" />
+<input type="hidden" name="client_secret" value="$CLIENT_SECRET" />
+
+#end

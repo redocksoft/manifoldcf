@@ -56,6 +56,7 @@
     <module>elasticsearch</module>
     <module>dropbox</module>
     <module>googledrive</module>
+    <module>office365</module>
     <module>jira</module>
     <module>generic</module>
     <module>regexpmapper</module>
