@@ -16,40 +16,32 @@
  */
 package org.apache.manifoldcf.crawler.connectors.office365;
 
-import java.io.*;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.microsoft.graph.models.extensions.IGraphServiceClient;
+import com.microsoft.graph.http.GraphServiceException;
+import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.Site;
-import com.microsoft.graph.requests.extensions.*;
-
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.stream.Collectors;
-import javax.xml.parsers.FactoryConfigurationError;
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
-
-import org.apache.http.*;
-import org.apache.http.auth.Credentials;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.auth.BasicScheme;
-import org.apache.http.protocol.HttpContext;
-import org.apache.http.util.EntityUtils;
-import org.apache.manifoldcf.agents.interfaces.*;
-import org.apache.manifoldcf.crawler.system.Logging;
+import org.apache.commons.lang.StringUtils;
+import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
+import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.connectorcommon.common.XThreadInputStream;
-import org.apache.manifoldcf.connectorcommon.common.XThreadStringBuffer;
 import org.apache.manifoldcf.core.interfaces.*;
+import org.apache.manifoldcf.core.util.URLEncoder;
 import org.apache.manifoldcf.crawler.connectors.BaseRepositoryConnector;
-import org.apache.manifoldcf.crawler.interfaces.*;
-import org.xml.sax.Attributes;
-import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+import org.apache.manifoldcf.crawler.interfaces.IExistingVersions;
+import org.apache.manifoldcf.crawler.interfaces.IProcessActivity;
+import org.apache.manifoldcf.crawler.interfaces.ISeedingActivity;
+import org.apache.manifoldcf.crawler.system.Logging;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InterruptedIOException;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class Office365Connector extends BaseRepositoryConnector
 {
@@ -57,25 +49,11 @@ public class Office365Connector extends BaseRepositoryConnector
   // to move into settings
   public final static ObjectMapper objectMapper = new ObjectMapper();
 
-  protected IGraphServiceClient graphClient;
+  protected Office365Session session;
 
-  /**
-   * Deny access token for default authority
-   */
-  private final static String defaultAuthorityDenyToken = "DEAD_AUTHORITY";
+  private final static String ACTIVITY_READ = "read document";
 
-  private final static String ACTION_PARAM_NAME = "action";
-
-  private final static String ACTION_CHECK = "check";
-
-  private final static String ACTION_SEED = "seed";
-
-  private final static String ACTION_ITEMS = "items";
-
-  private final static String ACTION_ITEM = "item";
-
-
-  protected static final String RELATIONSHIP_RELATED = "related";
+  private final static String ACTIVITY_FETCH = "fetch";
 
   // Template Names
   private static final String VIEW_CONFIG_FORWARD = "viewConfiguration.html";
@@ -87,11 +65,16 @@ public class Office365Connector extends BaseRepositoryConnector
   private static final String EDIT_SPEC_HEADER_FORWARD = "editSpecification.js.html";
   private static final String EDIT_SPEC_FORWARD = "editSpecification.html";
 
+  // Regex
+  private static final Pattern DOMAIN_PATTERN = Pattern.compile("https://(.*?)/");
+  private static final Pattern SITE_PATTERN = Pattern.compile("sites/(.*?)/");
+
   /**
    * Constructor.
    */
   public Office365Connector()
   {
+    super();
   }
 
   @Override
@@ -103,13 +86,18 @@ public class Office365Connector extends BaseRepositoryConnector
   @Override
   public String[] getRelationshipTypes()
   {
-    return new String[]{RELATIONSHIP_RELATED};
+    return new String[]{};
   }
 
   @Override
   public int getConnectorModel()
   {
-    return Office365Connector.MODEL_ADD_CHANGE;
+    return Office365Connector.MODEL_ADD_CHANGE_DELETE;
+  }
+
+  @Override
+  public String[] getActivitiesList() {
+    return new String[]{ACTIVITY_FETCH, ACTIVITY_READ};
   }
 
   /**
@@ -136,18 +124,17 @@ public class Office365Connector extends BaseRepositoryConnector
   public void connect(ConfigParams configParams)
   {
     super.connect(configParams);
-    if (graphClient == null) {
-      graphClient = GraphServiceClient
-        .builder()
-        .authenticationProvider(new Office365AuthenticationProvider(getConfigParameters()))
-        .buildClient();
+    Office365Config config = getConfigParameters(configParams);
+
+    if (session == null) {
+      session = new Office365Session(config);
     }
   }
 
   @Override
   public boolean isConnected()
   {
-    return graphClient != null;
+    return session != null;
   }
 
   @Override
@@ -156,8 +143,8 @@ public class Office365Connector extends BaseRepositoryConnector
   {
     super.disconnect();
     if (isConnected()) {
-      graphClient.shutdown();
-      graphClient = null;
+      session.close();
+      session = null;
     }
   }
 
@@ -179,53 +166,99 @@ public class Office365Connector extends BaseRepositoryConnector
   public String check()
   {
     if (!isConnected()) return "Not connected.";
-    Office365Config config = getConfigParameters();
 
-    try {
-      String token = ((Office365AuthenticationProvider) graphClient.getAuthenticationProvider()).getAuthToken(false);
-      if (token == null || token.length() == 0) {
-        return "Connection to ApplicationId failed: empty token returned.";
-      }
-    } catch (Exception ex) {
-      return "Connection to ApplicationId failed with exception: " + ex.getMessage();
-    }
-
-    StringBuilder resultMsg = new StringBuilder();
-    resultMsg.append("Connection to ApplicationId successful.\n");
-
-    if (config.getOrganizationDomain() == null || config.getOrganizationDomain().length() == 0) {
-      resultMsg.append("Organization Domain is not set.");
-      return resultMsg.toString();
-    }
-
-    try {
-      // Second, test if the the domain has the right permissions by accessing the root site root drive.
-      Site orgDefaultSite = graphClient
-        .sites(config.getOrganizationDomain())
-        .buildRequest()
-        .get();
-
-      if (orgDefaultSite != null) {
-        resultMsg.append("Connection to Office 365 organization domain successful.");
-      } else {
-        resultMsg.append("Could connect to site \"" + orgDefaultSite.displayName + "\" successful.");
-      }
-    }
-    catch(Exception ex) {
-      resultMsg.append("Failed to connect to domain with exception: " + ex.getMessage());
-    }
-
-    return resultMsg.toString();
+    return session.check();
   }
 
+  /**
+   * Using the SITE.NAME_PATTERN from the SITES spec, retrieve all the unique Drives.  Seed them using Microsoft
+   * drive/root/delta incremental API (https://docs.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance?view=odsp-graph-online)
+   * and
+   * @param activities is the interface this method should use to perform whatever framework actions are desired.
+   * @param spec is a document specification (that comes from the job).
+   * @param lastSeedVersion
+   * @param seedTime is the end of the time range of documents to consider, exclusive.
+   * @param jobMode is an integer describing how the job is being run, whether continuous or once-only.
+   * @return
+   * @throws ManifoldCFException
+   * @throws ServiceInterruption
+   */
   @Override
   public String addSeedDocuments(ISeedingActivity activities, Specification spec,
                                  String lastSeedVersion, long seedTime, int jobMode)
     throws ManifoldCFException, ServiceInterruption
   {
+    Office365Config config = getConfigParameters();
+    Set<String> fetchedSites = new HashSet<>();
+    HashMap<String, String> sitesToDelta = new HashMap();
 
-    // Todo
-    throw new NotImplementedException();
+    // Extract the site to delta url from previous seeding
+    if (lastSeedVersion != null) {
+      for (String siteDeltaPair : lastSeedVersion.split(";;")) {
+        String[] siteDeltaTokens = siteDeltaPair.split("::");
+        sitesToDelta.put(siteDeltaTokens[0], siteDeltaTokens[1]);
+      }
+    }
+
+    try {
+      // Build Drive path based on sites that match the sites name patterns. Redo it at every seeding as new sites may have been added
+      for (int i = 0; i < spec.getChildCount(); i++) {
+        SpecificationNode sn = spec.getChild(i);
+        if (sn.getType().equals(Office365Config.SITE_ATTR)) {
+          String siteNamePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
+          List<Site> sites = session.getSites(siteNamePattern);
+          for (Site site : sites) {
+            // Setup root folder URI
+            Logging.connectors.info("Seeding site " + site.displayName + " on domain " + config.getOrganizationDomain() + " (id: " + site.id + ").");
+            if (!sitesToDelta.containsKey(site.id)) {
+              // Seed the original delta request
+              sitesToDelta.put(site.id, String.format("%s/sites/%s/drive/root/delta", session.getServiceRoot(), site.id));
+            }
+            fetchedSites.add(site.id);
+          }
+        }
+      }
+
+      // Process all sites that have a delta request
+      List<ExecuteSeedingThread> seedingThreads = sitesToDelta.entrySet().stream()
+        .map(s -> new ExecuteSeedingThread(s.getKey(), s.getValue())).collect(Collectors.toList());
+
+      ExecutorService pool = Executors.newFixedThreadPool(8);
+      for (final ExecuteSeedingThread seedThread : seedingThreads) {
+        pool.execute(seedThread);
+      }
+
+      pool.shutdown();
+      pool.awaitTermination(1, TimeUnit.MINUTES);
+
+      for(ExecuteSeedingThread seedingThread : seedingThreads) {
+        Exception e = seedingThread.getException();
+        if (e != null) {
+          if (isThrottle(e)) {
+            // Keep the current deltaLink in the queue and revisit with next seeding
+            Logging.connectors.warn("GraphAPI connection throttled.");
+          } else {
+            handleException(e);
+          }
+        } else {
+          // Seed documents
+          for (String documentIdentifier : seedingThread.getResult().documentIdentifiers) {
+            activities.addSeedDocument(documentIdentifier);
+          }
+          // Update deltaLink
+           sitesToDelta.put(seedingThread.getSiteId(), seedingThread.getResult().deltaLink);
+        }
+      }
+
+      // TODO: If a site exists in the version string not in our query, then it's not available anymore so it all its documents should be entirely cleaned
+    }
+    catch(Exception e) {
+      handleException(e);
+    }
+
+    // pack the sitesToDelta for next seeding
+    String versionInfo = sitesToDelta.entrySet().stream().map(siteDelta -> siteDelta.getKey() + "::" + siteDelta.getValue()).collect(Collectors.joining(";;"));
+    return versionInfo;
   }
 
   @Override
@@ -233,9 +266,137 @@ public class Office365Connector extends BaseRepositoryConnector
                                IProcessActivity activities, int jobMode, boolean usesDefaultAuthority)
     throws ManifoldCFException, ServiceInterruption
   {
+    for(String documentIdentifier : documentIdentifiers) {
+      DriveItem driveItem = session.getDriveItem(documentIdentifier);
 
-    // TODO
-    throw new NotImplementedException();
+      // If driveItem is null and thus not found (404) delete from index.
+      if (driveItem == null) {
+        activities.deleteDocument(documentIdentifier);
+        continue;
+      }
+
+      // There are only two allowed version states, either "null" which means it has been seeded by the deltaLink, or
+      // "processed" which confirms the file has been processed by the routine below so no need to redo it.
+      if (!activities.checkDocumentNeedsReindexing(documentIdentifier, "processed")) {
+        continue;
+      }
+
+      // Don't do anything for folders as the deltaLink explicitly defines state of all the files from all folders.
+      // If storing the /folder/file relationship becomes useful, use the activities.addDocumentReference and add the
+      // logic to maintain relationship bearing in mind that deltaLink covers that logic already.
+      if (driveItem.folder != null) {
+        continue;
+      }
+
+      if (driveItem.size == 0L) {
+        Logging.connectors.debug("Office365: Empty file not processed.");
+        continue;
+      }
+
+      // We have a file that was seeded.
+      // Flag the version as "processed". It will be reseeded by deltaLink api if any change is discovered.
+      String version = "processed";
+
+      if (Logging.connectors.isDebugEnabled()) {
+        Logging.connectors.debug("Office365: Processing document identifier '" + documentIdentifier + "'");
+        Logging.connectors.debug("Office365: have this file:\t" + driveItem.name);
+      }
+
+      long startTime = System.currentTimeMillis();
+      String documentUri = null;
+      String errorCode = null;
+      String errorDesc = StringUtils.EMPTY;
+      List<String> pathElem = new ArrayList<>();
+
+      try {
+        if (!activities.checkLengthIndexable(driveItem.size)) {
+          errorCode = activities.EXCLUDED_LENGTH;
+          errorDesc = "Excluding document because of file length ('"+driveItem.size+"')";
+          activities.noDocument(documentIdentifier, version);
+          continue;
+        }
+
+        if (!activities.checkMimeTypeIndexable(driveItem.file.mimeType))
+        {
+          errorCode = activities.EXCLUDED_MIMETYPE;
+          errorDesc = "Excluding document because of mime type ("+driveItem.file.mimeType+")";
+          activities.noDocument(documentIdentifier, version);
+          continue;
+        }
+
+        if (!activities.checkDateIndexable(driveItem.lastModifiedDateTime.getTime()))
+        {
+          errorCode = activities.EXCLUDED_DATE;
+          errorDesc = "Excluding document because of date ("+driveItem.lastModifiedDateTime.getTime()+")";
+          activities.noDocument(documentIdentifier, version);
+          continue;
+        }
+
+        RepositoryDocument rd = new RepositoryDocument();
+        rd.setFileName(driveItem.name);
+        rd.setCreatedDate(driveItem.fileSystemInfo.createdDateTime.getTime());
+        rd.setModifiedDate(driveItem.fileSystemInfo.lastModifiedDateTime.getTime());
+        rd.setIndexingDate(new Date());
+        rd.setOriginalSize(driveItem.size);
+        rd.setMimeType(driveItem.file.mimeType);
+
+        // Harvest human readable paths to set in the rootPath (domain & site) and sourcePath (folder structure)
+        Matcher mDomain = DOMAIN_PATTERN.matcher(driveItem.webUrl);
+        Matcher mSite = SITE_PATTERN.matcher(driveItem.webUrl);
+        if (mDomain.find()) pathElem.add(mDomain.group(1));
+        if (mSite.find()) pathElem.add(mSite.group(1));
+
+        rd.setRootPath(pathElem);
+
+        String[] pathTokens = driveItem.parentReference.path.split(":");
+        String folder;
+        if (pathElem.size() > 0) folder = pathTokens[1];
+        else folder = pathTokens[0];
+        pathElem.addAll(Arrays.asList(StringUtils.strip(folder, "/").split("/")));
+
+        rd.setSourcePath(pathElem);
+        documentUri = pathElem.stream().map(p -> URLEncoder.encode(p)).collect(Collectors.joining("/", "/", "/")) + URLEncoder.encode(driveItem.name);
+
+        // TODO, METADATA, ACL
+        // driveItem.permissions.getCurrentPage() etc.
+
+        // Fire up the document reading thread
+        DocumentReadingThread t = new DocumentReadingThread(driveItem);
+        try {
+          t.start();
+          boolean wasInterrupted = false;
+          InputStream is = t.getSafeInputStream();
+          try {
+            rd.setBinary(is, driveItem.size);
+            activities.ingestDocumentWithException(documentIdentifier, version, documentUri, rd);
+          } catch (ManifoldCFException e) {
+            if (e.getErrorCode() == ManifoldCFException.INTERRUPTED)
+              wasInterrupted = true;
+            throw e;
+          } catch (Exception e) {
+            handleException(e);
+          } finally {
+            is.close();
+            if (!wasInterrupted)
+              t.finishUp();
+          }
+          // No errors.  Record the fact that we made it.
+          errorCode = "OK";
+        } catch (InterruptedException e) {
+          t.interrupt();
+          throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
+            ManifoldCFException.INTERRUPTED);
+        } catch (Exception e) {
+          handleException(e);
+        }
+      } catch (Exception e) {
+        handleException(e);
+      } finally {
+        if (errorCode != null)
+          activities.recordActivity(startTime, ACTIVITY_READ,
+            driveItem.size, documentIdentifier, errorCode, errorDesc, null);
+      }
+    }
   }
 
   @Override
@@ -379,7 +540,7 @@ public class Office365Connector extends BaseRepositoryConnector
 
         // Validate the endpoint exists when adding
         try {
-          List<Site> sites = getSites(siteNamePattern);
+          List<Site> sites = session.getSites(siteNamePattern);
           if (sites == null || sites.size() == 0) {
             node.setAttribute(Office365Config.SITE_STATUS_ATTR, "Site not found.");
           } else {
@@ -411,20 +572,6 @@ public class Office365Connector extends BaseRepositoryConnector
     Messages.outputResourceWithVelocity(out, locale, VIEW_SPEC_FORWARD, velocityContext);
   }
 
-  private List<Site> getSites(String siteNamePattern)
-    throws ManifoldCFException, ServiceInterruption
-  {
-    // Todo run this in a thread
-    Office365Config config = getConfigParameters();
-    List<Site> sites;
-
-    FetchSitesThread sitesThread = new FetchSitesThread(graphClient, config, siteNamePattern);
-    sitesThread.start();
-    sites = sitesThread.finishUp();
-
-    return sites;
-  }
-
   protected static String[] getAcls(Specification spec)
   {
     HashMap map = new HashMap();
@@ -446,337 +593,116 @@ public class Office365Connector extends BaseRepositoryConnector
     return rval;
   }
 
-  protected static void handleIOException(IOException e)
+  protected static boolean isThrottle(Exception e) {
+    if (e instanceof GraphServiceException) {
+      int code = ((GraphServiceException)e).getResponseCode();
+      return code == 503 || code == 509 || code == 429;
+    } else if (e instanceof java.net.SocketTimeoutException || e instanceof InterruptedIOException) {
+      return true;
+    }
+    return false;
+  }
+
+  protected static void handleException(Exception e)
     throws ManifoldCFException, ServiceInterruption
   {
-    if (!(e instanceof java.net.SocketTimeoutException) && (e instanceof InterruptedIOException)) {
-      throw new ManifoldCFException("Interrupted: " + e.getMessage(), e, ManifoldCFException.INTERRUPTED);
-    }
-    long currentTime = System.currentTimeMillis();
-    throw new ServiceInterruption("IO exception: " + e.getMessage(), e, currentTime + 300000L,
-      currentTime + 3 * 60 * 60000L, -1, false);
-  }
-
-  static class PreemptiveAuth implements HttpRequestInterceptor
-  {
-
-    private Credentials credentials;
-
-    public PreemptiveAuth(Credentials creds)
-    {
-      this.credentials = creds;
-    }
-
-    @Override
-    public void process(final HttpRequest request, final HttpContext context) throws HttpException, IOException
-    {
-      request.addHeader(new BasicScheme(StandardCharsets.US_ASCII).authenticate(credentials, request, context));
+    String errorMessage = String.format("Office365: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
+    Logging.connectors.debug(errorMessage);
+    e.printStackTrace();
+    if (isThrottle(e)) {
+      long currentTime = System.currentTimeMillis();
+      throw new ServiceInterruption(errorMessage, e, currentTime + 300000L, currentTime + 3 * 60 * 60000L, -1, false);
+    } else {
+      throw new ManifoldCFException(errorMessage, e);
     }
   }
 
-  protected static class FetchSitesThread extends Thread
+  protected class ExecuteSeedingThread extends Thread
   {
-    protected final IGraphServiceClient graphClient;
-    protected final Office365Config config;
-    protected final String siteNamePattern;
-    protected Throwable exception = null;
+    protected final String siteId;
 
-    protected List<Site> sites = new ArrayList<>();
+    protected final String siteDeltaUrl;
 
-    public FetchSitesThread(IGraphServiceClient graphClient, Office365Config config, String siteNamePattern)
-    {
-      this.graphClient = graphClient;
-      this.config = config;
-      this.siteNamePattern = siteNamePattern;
-      System.out.println("SiteNamePattern: " + siteNamePattern);
-    }
+    protected Office365Session.DocumentDeltaResult documentDeltaResult= null;
 
-    @Override
-    public void run()
-    {
-      try
-      {
-        String siteSearch;
-        if (siteNamePattern.matches("[a-zA-Z0-9\\s]*")) siteSearch = siteNamePattern;
-        else siteSearch = "*";
+    protected Exception exception = null;
 
-        String siteEnumerationQuery = String.format("%s/%s/sites?search=%s",
-          graphClient.getServiceRoot(), config.getOrganizationDomain(), URLEncoder.encode(siteSearch, Consts.UTF_8.name()));
-
-        ISiteCollectionRequestBuilder scrb = (new SiteCollectionRequestBuilder(siteEnumerationQuery, graphClient, null));
-
-        while (scrb != null) {
-          ISiteCollectionPage siteCollectionPage = scrb.buildRequest().get();
-          sites.addAll(siteCollectionPage.getCurrentPage());
-          scrb = siteCollectionPage.getNextPage();
-        }
-
-        // Note that the search is made against display name so the patterns also should be consistent
-        sites.removeIf(s -> {
-          if (siteSearch.equals("*")) return !s.displayName.matches(siteNamePattern);
-          else return !s.displayName.equals(siteSearch);
-        });
-      }
-      catch (Exception ex)
-      {
-        exception = ex;
-      }
-
-    }
-
-    public List<Site> finishUp()
-      throws ManifoldCFException, ServiceInterruption
-    {
-      try {
-        join();
-      }
-      catch (Exception ex)
-      {
-        exception = ex;
-      }
-
-      Throwable thr = exception;
-      if (thr != null) {
-        if (thr instanceof ManifoldCFException) {
-          throw (ManifoldCFException) thr;
-        } else if (thr instanceof ServiceInterruption || thr instanceof InterruptedException) {
-          throw (ServiceInterruption) thr;
-        }
-        throw new ManifoldCFException("getSites error: " + thr.getMessage(), thr);
-      }
-
-      return this.sites;
-    }
-  }
-
-  protected static class ExecuteSeedingThread extends Thread
-  {
-
-    protected final HttpClient client;
-
-    protected final String url;
-
-    protected final XThreadStringBuffer seedBuffer;
-
-    protected Throwable exception = null;
-
-    public ExecuteSeedingThread(HttpClient client, String url)
+    public ExecuteSeedingThread(String siteId, String siteDeltaUrl)
     {
       super();
+      this.siteId = siteId;
+      this.siteDeltaUrl = siteDeltaUrl;
       setDaemon(true);
-      this.client = client;
-      this.url = url;
-      seedBuffer = new XThreadStringBuffer();
-    }
-
-    public XThreadStringBuffer getBuffer()
-    {
-      return seedBuffer;
-    }
-
-    public void finishUp()
-      throws InterruptedException
-    {
-      seedBuffer.abandon();
-      join();
-      Throwable thr = exception;
-      if (thr != null) {
-        if (thr instanceof RuntimeException) {
-          throw (RuntimeException) thr;
-        } else if (thr instanceof Error) {
-          throw (Error) thr;
-        } else {
-          throw new RuntimeException("Unhandled exception of type: " + thr.getClass().getName(), thr);
-        }
-      }
-    }
-
-    @Override
-    public void run()
-    {
-      HttpGet method = new HttpGet(url.toString());
-
-      try {
-        HttpResponse response = client.execute(method);
-        try {
-          if (response.getStatusLine().getStatusCode() != HttpStatus.SC_OK) {
-            exception = new ManifoldCFException("addSeedDocuments error - interface returned incorrect return code for: " + url + " - " + response.getStatusLine().toString());
-            return;
-          }
-
-          try {
-            SAXParserFactory factory = SAXParserFactory.newInstance();
-            factory.setNamespaceAware(true);
-            SAXParser parser = factory.newSAXParser();
-            DefaultHandler handler = new SAXSeedingHandler(seedBuffer);
-            parser.parse(response.getEntity().getContent(), handler);
-          } catch (FactoryConfigurationError ex) {
-            exception = new ManifoldCFException("addSeedDocuments error: " + ex.getMessage(), ex);
-          } catch (ParserConfigurationException ex) {
-            exception = new ManifoldCFException("addSeedDocuments error: " + ex.getMessage(), ex);
-          } catch (SAXException ex) {
-            exception = new ManifoldCFException("addSeedDocuments error: " + ex.getMessage(), ex);
-          }
-          seedBuffer.signalDone();
-        } finally {
-          EntityUtils.consume(response.getEntity());
-          method.releaseConnection();
-        }
-      } catch (IOException ex) {
-        exception = ex;
-      }
-    }
-
-    public Throwable getException()
-    {
-      return exception;
-    }
-  }
-
-  protected static class DocumentVersionThread extends Thread
-  {
-
-    protected final HttpClient client;
-
-    protected final String url;
-
-    protected Throwable exception = null;
-
-    protected final String[] versions;
-
-    protected final String[] documentIdentifiers;
-
-    protected final String genericAuthMode;
-
-    protected final String defaultRights;
-
-    public DocumentVersionThread(HttpClient client, String url, String[] documentIdentifiers, String genericAuthMode, String defaultRights)
-    {
-      super();
-      setDaemon(true);
-      this.client = client;
-      this.url = url;
-      this.documentIdentifiers = documentIdentifiers;
-      this.genericAuthMode = genericAuthMode;
-      this.defaultRights = defaultRights;
-      this.versions = new String[documentIdentifiers.length];
-      for (int i = 0; i < versions.length; i++) {
-        versions[i] = null;
-      }
     }
 
     @Override
     public void run()
     {
       try {
-        HttpGet method = new HttpGet(url.toString());
-
-        HttpResponse response = client.execute(method);
-        try {
-          if (response.getStatusLine().getStatusCode() != HttpStatus.SC_OK) {
-            exception = new ManifoldCFException("addSeedDocuments error - interface returned incorrect return code for: " + url + " - " + response.getStatusLine().toString());
-            return;
-          }
-
-          // TODO
-
-        } finally {
-          EntityUtils.consume(response.getEntity());
-          method.releaseConnection();
-        }
-      } catch (Exception ex) {
-        exception = ex;
+        documentDeltaResult = session.getDocumentIdentifiersFromDelta(this.siteDeltaUrl);
+      } catch (Exception e) {
+        exception = e;
       }
     }
 
-    public String[] finishUp()
-      throws ManifoldCFException, ServiceInterruption, IOException, InterruptedException
-    {
-      join();
-      Throwable thr = exception;
-      if (thr != null) {
-        if (thr instanceof ManifoldCFException) {
-          throw (ManifoldCFException) thr;
-        } else if (thr instanceof ServiceInterruption) {
-          throw (ServiceInterruption) thr;
-        } else if (thr instanceof IOException) {
-          throw (IOException) thr;
-        } else if (thr instanceof RuntimeException) {
-          throw (RuntimeException) thr;
-        } else if (thr instanceof Error) {
-          throw (Error) thr;
-        }
-        throw new ManifoldCFException("getDocumentVersions error: " + thr.getMessage(), thr);
-      }
-      return versions;
-    }
+    public Exception getException() { return exception; }
+
+    public String getSiteId() { return siteId; }
+
+    public Office365Session.DocumentDeltaResult getResult() { return documentDeltaResult; }
   }
 
-  protected static class ExecuteProcessThread extends Thread
-  {
-
-    protected final HttpClient client;
-
-    protected final String url;
+  protected class DocumentReadingThread extends Thread {
 
     protected Throwable exception = null;
-
+    protected final DriveItem driveItem;
+    protected InputStream sourceStream;
     protected XThreadInputStream threadStream;
+    protected boolean abortThread;
 
-    protected boolean abortThread = false;
-
-    protected long streamLength = 0;
-
-    public ExecuteProcessThread(HttpClient client, String url)
-    {
+    public DocumentReadingThread(DriveItem driveItem) {
       super();
+      this.driveItem = driveItem;
       setDaemon(true);
-      this.client = client;
-      this.url = url;
     }
 
-    @Override
     public void run()
     {
       try {
-        HttpGet method = new HttpGet(url);
-        HttpResponse response = client.execute(method);
         try {
-          if (response.getStatusLine().getStatusCode() != HttpStatus.SC_OK) {
-            exception = new ManifoldCFException("processDocuments error - interface returned incorrect return code for: " + url + " - " + response.getStatusLine().toString());
-            return;
-          }
           synchronized (this) {
             if (!abortThread) {
-              streamLength = response.getEntity().getContentLength();
-              threadStream = new XThreadInputStream(response.getEntity().getContent());
+              sourceStream = session.getDriveItemOutputStream(driveItem);
+              threadStream = new XThreadInputStream(sourceStream);
               this.notifyAll();
             }
           }
 
-          if (threadStream != null) {
+          if (threadStream != null)
+          {
             // Stuff the content until we are done
             threadStream.stuffQueue();
           }
-        } catch (Throwable ex) {
-          exception = ex;
         } finally {
-          EntityUtils.consume(response.getEntity());
-          method.releaseConnection();
+          if (sourceStream != null) {
+            sourceStream.close();
+          }
         }
       } catch (Throwable e) {
         exception = e;
       }
     }
 
-    public InputStream getSafeInputStream() throws InterruptedException, IOException, ManifoldCFException
+    public XThreadInputStream getSafeInputStream() throws InterruptedException
     {
-      while (true) {
-        synchronized (this) {
+      // Must wait until stream is created, or until we note an exception was thrown.
+      while (true)
+      {
+        synchronized (this)
+        {
           if (exception != null) {
             throw new IllegalStateException("Check for response before getting stream");
           }
-          checkException(exception);
           if (threadStream != null) {
             return threadStream;
           }
@@ -785,43 +711,7 @@ public class Office365Connector extends BaseRepositoryConnector
       }
     }
 
-    public long getStreamLength() throws IOException, InterruptedException, ManifoldCFException
-    {
-      while (true) {
-        synchronized (this) {
-          if (exception != null) {
-            throw new IllegalStateException("Check for response before getting stream");
-          }
-          checkException(exception);
-          if (threadStream != null) {
-            return streamLength;
-          }
-          wait();
-        }
-      }
-    }
-
-    protected synchronized void checkException(Throwable exception)
-      throws IOException, ManifoldCFException
-    {
-      if (exception != null) {
-        Throwable e = exception;
-        if (e instanceof IOException) {
-          throw (IOException) e;
-        } else if (e instanceof ManifoldCFException) {
-          throw (ManifoldCFException) e;
-        } else if (e instanceof RuntimeException) {
-          throw (RuntimeException) e;
-        } else if (e instanceof Error) {
-          throw (Error) e;
-        } else {
-          throw new RuntimeException("Unhandled exception of type: " + e.getClass().getName(), e);
-        }
-      }
-    }
-
-    public void finishUp()
-      throws InterruptedException, IOException, ManifoldCFException
+    public void finishUp() throws InterruptedException, IOException
     {
       // This will be called during the finally
       // block in the case where all is well (and
@@ -833,34 +723,25 @@ public class Office365Connector extends BaseRepositoryConnector
         }
         abortThread = true;
       }
+
       join();
+
       checkException(exception);
     }
 
-    public Throwable getException()
+    protected synchronized void checkException(Throwable exception) throws IOException
     {
-      return exception;
-    }
-  }
-
-  static public class SAXSeedingHandler extends DefaultHandler
-  {
-
-    protected XThreadStringBuffer seedBuffer;
-
-    public SAXSeedingHandler(XThreadStringBuffer seedBuffer)
-    {
-      this.seedBuffer = seedBuffer;
-    }
-
-    @Override
-    public void startElement(String uri, String localName, String qName, Attributes attributes) throws SAXException
-    {
-      if ("seed".equals(localName) && attributes.getValue("id") != null) {
-        try {
-          seedBuffer.add(attributes.getValue("id"));
-        } catch (InterruptedException ex) {
-          throw new SAXException("Adding seed failed: " + ex.getMessage(), ex);
+      if (exception != null)
+      {
+        Throwable e = exception;
+        if (e instanceof IOException) {
+          throw (IOException)e;
+        } else if (e instanceof RuntimeException) {
+          throw (RuntimeException)e;
+        } else if (e instanceof Error) {
+          throw (Error)e;
+        } else {
+          throw new RuntimeException("Unhandled exception of type: "+e.getClass().getName(),e);
         }
       }
     }
