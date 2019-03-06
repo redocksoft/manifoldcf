@@ -9,8 +9,6 @@ public class Office365Config extends Office365Param {
 
   public static final String SITE_ATTR = "site";
   public static final String SITE_NAME_PATTERN_ATTR = "namepattern";
-  public static final String SITE_FOLDER_PATTERN_ATTR = "folderpattern";
-  public static final String SITE_FILE_PATTERN_ATTR = "filepattern";
   public static final String SITE_STATUS_ATTR = "status";
 
   final private static ParameterEnum[] CONFIGURATIONLIST =

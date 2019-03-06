@@ -14,13 +14,30 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
+
+/**
+ * This repository connector takes the configuration of Microsoft Application and reads the SharePoint Online sites that match
+ * a site name pattern.  The application needs File.Read.All and Site.Read.ALl at the Microsoft Graph Level, and Sites.Read.All
+ * at the SharPoint level.
+ *
+ * During the seeding, the connector uses the delta api https://docs.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance?view=odsp-graph-online
+ * to read the new, changed, or deleted files and seeds them.
+ * The document processing checks for these files and updates / deletes them accordingly.
+ *
+ * Possible Performance Optimization: The delta API lists deleted files, but the BaseConnector API from Manifold doesn't have
+ * ways to queue for deletion without rechecking for the file on the repository. This in turn triggers request to Microsft API
+ * that return 404 even thought we know where were deleted.  An optimization could be to create a managed table that keeps track
+ * of the deltaLink driveItem requets and that is verified during the processDocuments instead of reissuing a check request on the graph.
+ */
 package org.apache.manifoldcf.crawler.connectors.office365;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.graph.http.GraphServiceException;
+import com.microsoft.graph.models.extensions.Drive;
 import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.Site;
 import org.apache.commons.lang.StringUtils;
+import org.apache.manifoldcf.agents.interfaces.IOutputHistoryActivity;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.connectorcommon.common.XThreadInputStream;
@@ -31,6 +48,7 @@ import org.apache.manifoldcf.crawler.interfaces.IExistingVersions;
 import org.apache.manifoldcf.crawler.interfaces.IProcessActivity;
 import org.apache.manifoldcf.crawler.interfaces.ISeedingActivity;
 import org.apache.manifoldcf.crawler.system.Logging;
+import org.apache.manifoldcf.crawler.system.ManifoldCF;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,8 +68,11 @@ public class Office365Connector extends BaseRepositoryConnector
   public final static ObjectMapper objectMapper = new ObjectMapper();
 
   protected Office365Session session;
+  protected IDBInterface databaseHandle;
 
   private final static String ACTIVITY_READ = "read document";
+  private final static String ACTIVITY_DELETE_DRIVE = "delete drive";
+  private final static String ACTIVITY_DELETE_DOCUMENT = "delete document";
 
   private final static String ACTIVITY_FETCH = "fetch";
 
@@ -132,6 +153,18 @@ public class Office365Connector extends BaseRepositoryConnector
   }
 
   @Override
+  public void setThreadContext(IThreadContext threadContext)
+    throws ManifoldCFException
+  {
+    super.setThreadContext(threadContext);
+
+    databaseHandle = DBInterfaceFactory.make(threadContext,
+      org.apache.manifoldcf.crawler.system.ManifoldCF.getMasterDatabaseName(),
+      org.apache.manifoldcf.crawler.system.ManifoldCF.getMasterDatabaseUsername(),
+      ManifoldCF.getMasterDatabasePassword());
+  }
+
+  @Override
   public boolean isConnected()
   {
     return session != null;
@@ -189,14 +222,14 @@ public class Office365Connector extends BaseRepositoryConnector
     throws ManifoldCFException, ServiceInterruption
   {
     Office365Config config = getConfigParameters();
-    Set<String> fetchedSites = new HashSet<>();
-    HashMap<String, String> sitesToDelta = new HashMap();
+    HashMap<String, String> previousSiteDeltas = new HashMap();
+    HashMap<String, String> newSiteDeltas = new HashMap();
 
-    // Extract the site to delta url from previous seeding
-    if (lastSeedVersion != null) {
+    // Extract the (drive, delta url) from previous seeding
+    if (lastSeedVersion != null && lastSeedVersion.length() > 0) {
       for (String siteDeltaPair : lastSeedVersion.split(";;")) {
         String[] siteDeltaTokens = siteDeltaPair.split("::");
-        sitesToDelta.put(siteDeltaTokens[0], siteDeltaTokens[1]);
+        previousSiteDeltas.put(siteDeltaTokens[0], siteDeltaTokens[1]);
       }
     }
 
@@ -206,36 +239,42 @@ public class Office365Connector extends BaseRepositoryConnector
         SpecificationNode sn = spec.getChild(i);
         if (sn.getType().equals(Office365Config.SITE_ATTR)) {
           String siteNamePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
+
           List<Site> sites = session.getSites(siteNamePattern);
           for (Site site : sites) {
-            // Setup root folder URI
+            // Setup root folder newDeltaLink using the site accessor to root drive
             Logging.connectors.info("Seeding site " + site.displayName + " on domain " + config.getOrganizationDomain() + " (id: " + site.id + ").");
-            if (!sitesToDelta.containsKey(site.id)) {
-              // Seed the original delta request
-              sitesToDelta.put(site.id, String.format("%s/sites/%s/drive/root/delta", session.getServiceRoot(), site.id));
+            // Use the newDeltaLink provided as part of the previous seeding
+            if (previousSiteDeltas.containsKey(site.id)) {
+              newSiteDeltas.put(site.id, previousSiteDeltas.get(site.id));
+            } else {
+              // Build first deltaLink using the drive path
+              Drive newSiteDrive = session.getDriveForSite(site.id);
+              newSiteDeltas.put(site.id, String.format("%s/drives/%s/root/delta", session.getServiceRoot(), newSiteDrive.id));
             }
-            fetchedSites.add(site.id);
           }
         }
       }
 
       // Process all sites that have a delta request
-      List<ExecuteSeedingThread> seedingThreads = sitesToDelta.entrySet().stream()
+      List<ExecuteSeedingThread> seedingThreads = newSiteDeltas.entrySet().stream()
         .map(s -> new ExecuteSeedingThread(s.getKey(), s.getValue())).collect(Collectors.toList());
 
-      ExecutorService pool = Executors.newFixedThreadPool(8);
-      for (final ExecuteSeedingThread seedThread : seedingThreads) {
-        pool.execute(seedThread);
-      }
+      if (seedingThreads.size() > 0) {
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        for (final ExecuteSeedingThread seedThread : seedingThreads) {
+          pool.execute(seedThread);
+        }
 
-      pool.shutdown();
-      pool.awaitTermination(1, TimeUnit.MINUTES);
+        pool.shutdown();
+        pool.awaitTermination(10, TimeUnit.MINUTES);
+      }
 
       for(ExecuteSeedingThread seedingThread : seedingThreads) {
         Exception e = seedingThread.getException();
         if (e != null) {
           if (isThrottle(e)) {
-            // Keep the current deltaLink in the queue and revisit with next seeding
+            // Keep the current newDeltaLink in the queue and revisit with next seeding
             Logging.connectors.warn("GraphAPI connection throttled.");
           } else {
             handleException(e);
@@ -245,19 +284,55 @@ public class Office365Connector extends BaseRepositoryConnector
           for (String documentIdentifier : seedingThread.getResult().documentIdentifiers) {
             activities.addSeedDocument(documentIdentifier);
           }
-          // Update deltaLink
-           sitesToDelta.put(seedingThread.getSiteId(), seedingThread.getResult().deltaLink);
+
+          // Add the site drive itself as a parent document if this is the original seed
+          if (!seedingThread.getSiteDeltaLink().contains("?token=")) {
+            String driveId = session.getDriveIdFromUrlSegment(seedingThread.getSiteDeltaLink());
+            activities.addSeedDocument(String.format("drives/%s", driveId));
+          }
+
+          // Update newDeltaLink
+          newSiteDeltas.put(seedingThread.getSiteId(), seedingThread.getResult().newDeltaLink);
         }
       }
 
-      // TODO: If a site exists in the version string not in our query, then it's not available anymore so it all its documents should be entirely cleaned
+      // Identify the sites that existed during the last seed but that have been deleted since then
+      for (Map.Entry<String, String> previousSiteDelta : previousSiteDeltas.entrySet()) {
+        if (!newSiteDeltas.containsKey(previousSiteDelta.getKey())) {
+          String driveId = session.getDriveIdFromUrlSegment(previousSiteDelta.getValue());
+          if (driveId != null) {
+            // Seed all files that belonged to the unreachable drive.  ProcessDocument will attempt to reach each file
+            // and delete the unreachable one.
+            try {
+              databaseHandle.beginTransaction();
+
+              // For Office delta api, the seeding always provide the changed/new/deleted files so we don't need to test with a lastVersion info.
+              // Use the lastVersion as a container for the driveId so we can retrieve all documents that belong to a deleted drive for deletion.
+              // Note that I've experimented with activities.addDocumentReference(documentIdentifier, String.format("drives/%s", driveItem.parentReference.driveId), "child")
+              // and MODEL_CHAINED_CHANGE_ADD_DELETE to see if deletion on parent documentIdentifier would trickle down, but with no avail.
+              String childDocumentQuery = "WHERE lastversion LIKE '%" + driveId + "%'";
+              IResultSet set = databaseHandle.performQuery("SELECT lastversion FROM ingeststatus " + childDocumentQuery, new ArrayList(), null, null);
+
+              for (int i = 0; i < set.getRowCount(); i++) {
+                IResultRow row = set.getRow(i);
+                String containedDocumentIdentifier = (String) row.getValue("lastversion");
+                activities.addSeedDocument(containedDocumentIdentifier);
+              }
+            } catch (Exception e) {
+              handleException(e);
+            } finally {
+              databaseHandle.endTransaction();
+            }
+          }
+        }
+      }
     }
     catch(Exception e) {
       handleException(e);
     }
 
     // pack the sitesToDelta for next seeding
-    String versionInfo = sitesToDelta.entrySet().stream().map(siteDelta -> siteDelta.getKey() + "::" + siteDelta.getValue()).collect(Collectors.joining(";;"));
+    String versionInfo = newSiteDeltas.entrySet().stream().map(siteDelta -> siteDelta.getKey() + "::" + siteDelta.getValue()).collect(Collectors.joining(";;"));
     return versionInfo;
   }
 
@@ -267,67 +342,74 @@ public class Office365Connector extends BaseRepositoryConnector
     throws ManifoldCFException, ServiceInterruption
   {
     for(String documentIdentifier : documentIdentifiers) {
-      DriveItem driveItem = session.getDriveItem(documentIdentifier);
-
-      // If driveItem is null and thus not found (404) delete from index.
-      if (driveItem == null) {
-        activities.deleteDocument(documentIdentifier);
-        continue;
-      }
-
-      // There are only two allowed version states, either "null" which means it has been seeded by the deltaLink, or
-      // "processed" which confirms the file has been processed by the routine below so no need to redo it.
-      if (!activities.checkDocumentNeedsReindexing(documentIdentifier, "processed")) {
-        continue;
-      }
-
-      // Don't do anything for folders as the deltaLink explicitly defines state of all the files from all folders.
-      // If storing the /folder/file relationship becomes useful, use the activities.addDocumentReference and add the
-      // logic to maintain relationship bearing in mind that deltaLink covers that logic already.
-      if (driveItem.folder != null) {
-        continue;
-      }
-
-      if (driveItem.size == 0L) {
-        Logging.connectors.debug("Office365: Empty file not processed.");
-        continue;
-      }
-
-      // We have a file that was seeded.
-      // Flag the version as "processed". It will be reseeded by deltaLink api if any change is discovered.
-      String version = "processed";
-
-      if (Logging.connectors.isDebugEnabled()) {
-        Logging.connectors.debug("Office365: Processing document identifier '" + documentIdentifier + "'");
-        Logging.connectors.debug("Office365: have this file:\t" + driveItem.name);
-      }
-
       long startTime = System.currentTimeMillis();
-      String documentUri = null;
-      String errorCode = null;
-      String errorDesc = StringUtils.EMPTY;
-      List<String> pathElem = new ArrayList<>();
+      String documentUri;
+      String activity = ACTIVITY_READ;
+      String resultCode = null;
+      String resultDesc = StringUtils.EMPTY;
+      Long fileSize = 0L;
 
       try {
+        DriveItem driveItem = session.getDriveItem(documentIdentifier);
+
+        // If driveItem is null and thus not found (404) delete from index.
+        if (driveItem == null) {
+          activities.deleteDocument(documentIdentifier);
+          activity = ACTIVITY_DELETE_DOCUMENT;
+          resultCode = "OK";
+          continue;
+        }
+
+        // We have a file that was seeded.
+        if (Logging.connectors.isDebugEnabled()) {
+          Logging.connectors.debug("Office365: Processing document identifier '" + documentIdentifier + "' with name '" + driveItem.name + "'");
+        }
+
+        // As stated above, we don't need to handle version with the delta api, so we use the lastversion string to
+        // contain documentIdentifier so we can filter by driveId.
+        String version = documentIdentifier;
+        if (driveItem.size != null) fileSize = driveItem.size;
+
+        // There are only two allowed version states, either "null" which means it has been seeded by the newDeltaLink, or
+        // "processed" which confirms the file has been processed by the routine below so no need to redo it.
+        if (!activities.checkDocumentNeedsReindexing(documentIdentifier, version)) {
+          continue;
+        }
+
+        // Don't do anything for folders as the delta api explicitly defines state of all the files from all folders.
+        if (driveItem.folder != null) {
+          continue;
+        }
+
+        if (fileSize == 0L) {
+          resultCode = IOutputHistoryActivity.EXCEPTION;
+          resultDesc = "Empty file";
+          Logging.connectors.debug("Office365: Empty file not processed.");
+          continue;
+        }
+
+        // URI tokens
+        List<String> pathElem = new ArrayList<>();
+
         if (!activities.checkLengthIndexable(driveItem.size)) {
-          errorCode = activities.EXCLUDED_LENGTH;
-          errorDesc = "Excluding document because of file length ('"+driveItem.size+"')";
+          resultCode = activities.EXCLUDED_LENGTH;
+          resultDesc = "Excluding document because of file length ('"+driveItem.size+"')";
           activities.noDocument(documentIdentifier, version);
           continue;
         }
 
         if (!activities.checkMimeTypeIndexable(driveItem.file.mimeType))
         {
-          errorCode = activities.EXCLUDED_MIMETYPE;
-          errorDesc = "Excluding document because of mime type ("+driveItem.file.mimeType+")";
+          resultCode = activities.EXCLUDED_MIMETYPE;
+          resultDesc = "Excluding document because of mime type ("+driveItem.file.mimeType+")";
           activities.noDocument(documentIdentifier, version);
           continue;
         }
 
         if (!activities.checkDateIndexable(driveItem.lastModifiedDateTime.getTime()))
         {
-          errorCode = activities.EXCLUDED_DATE;
-          errorDesc = "Excluding document because of date ("+driveItem.lastModifiedDateTime.getTime()+")";
+          resultCode = activities.EXCLUDED_DATE;
+          resultDesc = "Excluding document because of date ("+driveItem.lastModifiedDateTime.getTime()+")";
           activities.noDocument(documentIdentifier, version);
           continue;
         }
@@ -349,10 +431,9 @@ public class Office365Connector extends BaseRepositoryConnector
         rd.setRootPath(pathElem);
 
         String[] pathTokens = driveItem.parentReference.path.split(":");
-        String folder;
-        if (pathElem.size() > 0) folder = pathTokens[1];
-        else folder = pathTokens[0];
-        pathElem.addAll(Arrays.asList(StringUtils.strip(folder, "/").split("/")));
+        if (pathTokens.length > 1) {
+          pathElem.addAll(Arrays.asList(StringUtils.strip(pathTokens[1], "/").split("/")));
+        }
 
         rd.setSourcePath(pathElem);
         documentUri = pathElem.stream().map(p -> URLEncoder.encode(p)).collect(Collectors.joining("/", "/", "/")) + URLEncoder.encode(driveItem.name);
@@ -381,7 +462,7 @@ public class Office365Connector extends BaseRepositoryConnector
               t.finishUp();
           }
           // No errors.  Record the fact that we made it.
-          errorCode = "OK";
+          resultCode = "OK";
         } catch (InterruptedException e) {
           t.interrupt();
           throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
@@ -392,9 +473,9 @@ public class Office365Connector extends BaseRepositoryConnector
       } catch (Exception e) {
         handleException(e);
       } finally {
-        if (errorCode != null)
-          activities.recordActivity(startTime, ACTIVITY_READ,
-            driveItem.size, documentIdentifier, errorCode, errorDesc, null);
+        if (resultCode != null)
+          activities.recordActivity(startTime, activity,
+            fileSize, documentIdentifier, resultCode, resultDesc, null);
       }
     }
   }
@@ -479,8 +560,6 @@ public class Office365Connector extends BaseRepositoryConnector
       {
         Map<String,Object> site = new HashMap();
         site.put("NAME_PATTERN", sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR));
-        site.put("FOLDER_PATTERN", sn.getAttributeValue(Office365Config.SITE_FOLDER_PATTERN_ATTR));
-        site.put("FILE_PATTERN", sn.getAttributeValue(Office365Config.SITE_FILE_PATTERN_ATTR));
         site.put("STATUS", sn.getAttributeValue(Office365Config.SITE_STATUS_ATTR));
         sites.add(site);
       }
@@ -521,8 +600,6 @@ public class Office365Connector extends BaseRepositoryConnector
         }
         SpecificationNode node = new SpecificationNode(Office365Config.SITE_ATTR);
         node.setAttribute(Office365Config.SITE_NAME_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_ATTR));
-        node.setAttribute(Office365Config.SITE_FOLDER_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_FOLDER_PATTERN_ATTR));
-        node.setAttribute(Office365Config.SITE_FILE_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_FILE_PATTERN_ATTR));
         node.setAttribute(Office365Config.SITE_STATUS_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_STATUS_ATTR));
 
         ds.addChild(ds.getChildCount(), node);
@@ -535,8 +612,6 @@ public class Office365Connector extends BaseRepositoryConnector
         SpecificationNode node = new SpecificationNode(Office365Config.SITE_ATTR);
         String siteNamePattern = variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_ATTR);
         node.setAttribute(Office365Config.SITE_NAME_PATTERN_ATTR, siteNamePattern);
-        node.setAttribute(Office365Config.SITE_FOLDER_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_FOLDER_PATTERN_ATTR));
-        node.setAttribute(Office365Config.SITE_FILE_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_FILE_PATTERN_ATTR));
 
         // Validate the endpoint exists when adding
         try {
@@ -621,17 +696,17 @@ public class Office365Connector extends BaseRepositoryConnector
   {
     protected final String siteId;
 
-    protected final String siteDeltaUrl;
+    protected final String siteDeltaLink;
 
-    protected Office365Session.DocumentDeltaResult documentDeltaResult= null;
+    protected Office365Session.DriveDeltaResult driveDeltaResult = null;
 
     protected Exception exception = null;
 
-    public ExecuteSeedingThread(String siteId, String siteDeltaUrl)
+    public ExecuteSeedingThread(String siteId, String siteDeltaLink)
     {
       super();
       this.siteId = siteId;
-      this.siteDeltaUrl = siteDeltaUrl;
+      this.siteDeltaLink = siteDeltaLink;
       setDaemon(true);
     }
 
@@ -639,7 +714,7 @@ public class Office365Connector extends BaseRepositoryConnector
     public void run()
     {
       try {
-        documentDeltaResult = session.getDocumentIdentifiersFromDelta(this.siteDeltaUrl);
+        driveDeltaResult = session.getDocumentIdentifiersFromDelta(this.siteDeltaLink);
       } catch (Exception e) {
         exception = e;
       }
@@ -649,7 +724,9 @@ public class Office365Connector extends BaseRepositoryConnector
 
     public String getSiteId() { return siteId; }
 
-    public Office365Session.DocumentDeltaResult getResult() { return documentDeltaResult; }
+    public String getSiteDeltaLink() { return siteDeltaLink; }
+
+    public Office365Session.DriveDeltaResult getResult() { return driveDeltaResult; }
   }
 
   protected class DocumentReadingThread extends Thread {

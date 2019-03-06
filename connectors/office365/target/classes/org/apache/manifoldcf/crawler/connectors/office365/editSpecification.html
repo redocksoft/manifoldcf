@@ -18,13 +18,11 @@
 
 <table class="displaytable">
   <tr>
-    <td colspan="5">$Encoder.attributeEscape($ResourceBundle.getString('office365.DomainColon')) <b>$ORGANIZATION_DOMAIN</b></td>
+    <td colspan="3">$Encoder.attributeEscape($ResourceBundle.getString('office365.DomainColon')) <b>$ORGANIZATION_DOMAIN</b></td>
   </tr>
   <tr>
     <td></td>
     <td><b>$ResourceBundle.getString('office365.SiteIncludePattern')</b></td>
-    <td><b>$ResourceBundle.getString('office365.FolderIncludePattern')</b></td>
-    <td><b>$ResourceBundle.getString('office365.FileIncludePattern')</b></td>
     <td><b>$ResourceBundle.getString('office365.RegisteredSites')</b></td>
    </tr>
   #set($siteNum = 0)
@@ -39,8 +37,6 @@
         $site.get('NAME_PATTERN')
         <input  type="hidden" name="s${SEQNUM}_site_${siteNum}_namepattern" value="$site.get('NAME_PATTERN')" />
       </td>
-      <td><input type="text" size="20" name="s${SEQNUM}_site_${siteNum}_folderpattern" value="$site.get('FOLDER_PATTERN')" /></td>
-      <td><input type="text" size="20" name="s${SEQNUM}_site_${siteNum}_filepattern" value="$site.get('FILE_PATTERN')" /></td>
       <td>
         <nobr>$site.get('STATUS')</nobr>
         <input type="hidden" name="s${SEQNUM}_site_${siteNum}_status" value="$site.get('STATUS')" />
@@ -50,7 +46,7 @@
   #end
   #if($siteNum != 0)
   <tr>
-    <td class="lightseparator" colspan="5"><hr/></td>
+    <td class="lightseparator" colspan="3"><hr/></td>
   </tr>
   #end
   <tr>
@@ -63,12 +59,6 @@
     <td class="value">
       <input type="text" size="20" name="s${SEQNUM}_site_namepattern" value=".*"/>
     </td>
-    <td class="value">
-      <input type="text" size="20" name="s${SEQNUM}_site_folderpattern" value=".*"/>
-    </td>
-    <td class="value">
-      <input type="text" size="20" name="s${SEQNUM}_site_filepattern" value=".*"/>
-    </td>
     <td></td>
   </tr>
 </table>
@@ -76,10 +66,9 @@
 #else
   #set($siteNum = 0)
   #foreach ($site in $SITES)
-    <input type="hidden" name="s${SEQNUM}_site_${siteNum}_namepattern" value="$Encoder.attributeEscape($site.get('NAME_PATTERN'))"/>
-    <input type="hidden" name="s${SEQNUM}_site_${siteNum}_folderpattern" value="$Encoder.attributeEscape($site.get('FOLDER_PATTERN'))"/>
-    <input type="hidden" name="s${SEQNUM}_site_${siteNum}_filepattern" value="$Encoder.attributeEscape($site.get('FILE_PATTERN'))"/>
-    <input type="hidden" name="s${SEQNUM}_site_${siteNum}_status" value="$Encoder.attributeEscape($site.get('STATUS'))"/>
+    <input type="hidden" name="s${SEQNUM}_site_${siteNum}_namepattern" value="$site.get('NAME_PATTERN')"/>
+    <input type="hidden" name="s${SEQNUM}_site_${siteNum}_status" value="$site.get('STATUS')"/>
     #set($siteNum = $siteNum + 1)
   #end
+  <input type="hidden" name="s${SEQNUM}_site_count" value="${siteNum}"/>
 #end

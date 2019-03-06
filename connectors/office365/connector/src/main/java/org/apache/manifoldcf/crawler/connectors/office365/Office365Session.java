@@ -2,22 +2,24 @@ package org.apache.manifoldcf.crawler.connectors.office365;
 
 import com.microsoft.graph.core.ClientException;
 import com.microsoft.graph.http.GraphServiceException;
-import com.microsoft.graph.http.HttpResponseCode;
+import com.microsoft.graph.models.extensions.Drive;
 import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.IGraphServiceClient;
 import com.microsoft.graph.models.extensions.Site;
 import com.microsoft.graph.requests.extensions.*;
-import org.apache.http.HttpResponse;
 import org.apache.manifoldcf.core.util.URLEncoder;
 
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Office365Session
 {
   private static String APPNAME = "ManifoldCF Office365 Connector";
+
+  private static final Pattern DRIVE_PATTERN = Pattern.compile("drives/(.*?)(/|$|\\?)");
 
   private IGraphServiceClient graphClient;
   private Office365Config config;
@@ -107,22 +109,24 @@ public class Office365Session
     return sites;
   }
 
-  public class DocumentDeltaResult {
-    public String deltaLink;
+  public class DriveDeltaResult
+  {
+    public String newDeltaLink;
+    public String driveId;
     public List<String> documentIdentifiers = new ArrayList<>();
   }
 
   /**
-   * Returns the collection of DriveItem representing files for a at a specific deltaLink.
-   * This also returns the next deltaLink.  Folders are omitted as the delta collection explicitly describes the state of each individual file.
+   * Returns the collection of DriveItem representing files for a at a specific newDeltaLink.
+   * This also returns the next newDeltaLink.  Folders are omitted as the delta collection explicitly describes the state of each individual file.
    * @param deltaLink
    * @return
    * @throws ClientException
    */
-  public DocumentDeltaResult getDocumentIdentifiersFromDelta(String deltaLink)
+  public DriveDeltaResult getDocumentIdentifiersFromDelta(String deltaLink)
   throws ClientException
   {
-    DocumentDeltaResult result = new DocumentDeltaResult();
+    DriveDeltaResult result = new DriveDeltaResult();
     IDriveItemDeltaCollectionRequestBuilder reqBuilder = new DriveItemDeltaCollectionRequestBuilder(deltaLink, graphClient, null);
 
     while (reqBuilder != null) {
@@ -130,26 +134,64 @@ public class Office365Session
       for (DriveItem driveItem : driveItemDeltaCollectionPage.getCurrentPage()) {
         if (driveItem.folder == null) {
           String documentIdentifier = String.format("drives/%s/items/%s", driveItem.parentReference.driveId, driveItem.id);
-          // As opposed to other connectors, the delta api lists deleted files so for efficiency, we don't have to "test"
-          // for them in the processDocuments.  The approach here is the encode the delete request into the document identifier
-          // and handle properly when processing documents.
-          // if (driveItem.deleted != null) {
-          //  documentIdentifier += "?op=delete";
-          // }
-          result.documentIdentifiers.add(documentIdentifier);
-
-          // TODO Po, figure this out
-          // Here, we get files that were created AND deleted.  The processDocuments routine will delete documents upon getting a 404
+          // Here, we get files that were created AND deleted (driveItem.deleted).  The processDocuments routine will delete documents upon getting a 404
           // from the graph client.  Since we have the delete information, we could think about passing it into the processing.  However,
-          // altering the documentIdentfier with a ?op=delete for instance creates a new document
+          // altering the documentIdentifier with a ?op=delete for instance creates a new document and doesn't load the correct one into context.
+          // Would probably need to persist the list of delete request using storage.  To limit development time, we will take the hit of doing a request on the
+          // file and do a 404.
+          result.documentIdentifiers.add(documentIdentifier);
+          if (result.driveId == null) result.driveId = driveItem.parentReference.driveId;
         }
       }
-      if (result.deltaLink == null) {
-        result.deltaLink = driveItemDeltaCollectionPage.deltaLink();
+      if (result.newDeltaLink == null) {
+        result.newDeltaLink = driveItemDeltaCollectionPage.deltaLink();
       }
       reqBuilder = driveItemDeltaCollectionPage.getNextPage();
     }
+
     return result;
+  }
+
+  public Drive getDriveForSite(String siteId)
+    throws ClientException
+  {
+    Drive drive;
+    IDriveRequestBuilder reqBuilder = new DriveRequestBuilder(String.format("%s/sites/%s/drive", graphClient.getServiceRoot(), siteId), graphClient, null);
+    try {
+      drive = reqBuilder.buildRequest().get();
+    } catch (GraphServiceException e) {
+      if (e.getResponseCode() == 404 || e.getResponseCode() == 403) {
+        return null;
+      } else {
+        throw e;
+      }
+    }
+    return drive;
+  }
+
+  public String getDriveIdFromUrlSegment(String deltaLink) {
+    Matcher driveMatcher = DRIVE_PATTERN.matcher(deltaLink);
+    if (driveMatcher.find()) {
+      return driveMatcher.group(1);
+    }
+    return null;
+  }
+
+  public Drive getDrive(String documentIdentifier)
+    throws ClientException
+  {
+    Drive drive;
+    IDriveRequestBuilder reqBuilder = new DriveRequestBuilder(String.format("%s/%s", graphClient.getServiceRoot(), documentIdentifier), graphClient, null);
+    try {
+      drive = reqBuilder.buildRequest().get();
+    } catch (GraphServiceException e) {
+      if (e.getResponseCode() == 404) {
+        return null;
+      } else {
+        throw e;
+      }
+    }
+    return drive;
   }
 
   public DriveItem getDriveItem(String documentIdentifier)
