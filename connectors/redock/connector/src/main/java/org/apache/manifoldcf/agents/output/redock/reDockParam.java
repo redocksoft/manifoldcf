@@ -14,9 +14,8 @@ public class reDockParam extends HashMap<ParameterEnum, String> {
    * Parameters constants
    */
   public enum ParameterEnum {
-    SERVERLOCATION("http://localhost:8080"),
+    SERVERLOCATION("https://api.redock.com"),
     TOKEN("VALID_AUTHENTICATION_TOKEN_HERE"),
-    // These
     CLIENTNAME(""),
     ENVIRONMENT("");
 

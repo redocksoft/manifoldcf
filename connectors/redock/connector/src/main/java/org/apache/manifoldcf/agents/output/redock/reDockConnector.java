@@ -235,7 +235,38 @@ public class reDockConnector extends BaseOutputConnector {
     {
       activities.recordActivity(null, INGEST_ACTIVITY, document.getBinaryLength(), documentURI, "EXCEPTION", e.toString());
     }
+
     return DOCUMENTSTATUS_ACCEPTED;
+  }
+
+  private final static Set<String> acceptableMimeTypes = new HashSet<String>();
+  static
+  {
+    acceptableMimeTypes.add("application/msword"); // .doc, .dot
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.wordprocessingml.document"); // .docx
+    acceptableMimeTypes.add("application/vnd.ms-word.document.macroenabled.12"); // .docm
+    acceptableMimeTypes.add("application/vnd.ms-word.template.macroenabled.12"); // .dotm
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint"); // .ppt, .pot, .pps, .ppa
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.presentation"); // .pptx
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.template"); // .potx
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.slideshow"); // ppsx
+    acceptableMimeTypes.add("application/vnd.application/vnd.ms-powerpoint.presentation.macroenabled.12"); //.pptm
+    acceptableMimeTypes.add("application/vnd.application/vnd.ms-powerpoint.addin.macroenabled.12"); // .ppam
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint.slideshow.macroenabled.12"); // .ppsm
+  }
+
+  /** Detect if a mime type is indexable or not.  This method is used by participating repository connectors to pre-filter the number of
+   * unusable documents that will be passed to this output connector.
+   *@param outputDescription is the document's output version.
+   *@param mimeType is the mime type of the document.
+   *@return true if the mime type is indexable by this connector.
+   */
+  @Override
+  public boolean checkMimeTypeIndexable(VersionContext outputDescription, String mimeType, IOutputCheckActivity activities)
+  {
+    if (mimeType == null)
+      return false;
+    return acceptableMimeTypes.contains(mimeType.toLowerCase(Locale.ROOT));
   }
 
   /** Remove a document using the connector.
@@ -270,12 +301,7 @@ public class reDockConnector extends BaseOutputConnector {
    */
   @Override
   public void noteJobComplete(IOutputNotifyActivity activities)
-    throws ManifoldCFException, ServiceInterruption {
-    // Establish a session
-    HttpClient client = getSession();
-    reDockConfig config = getConfigParameters(null);
-    reDockAction reDock = new reDockAction(client, config);
-
+    throws ManifoldCFException {
     activities.recordActivity(null, JOB_COMPLETE_ACTIVITY, null, "", "OK", null);
   }
 
