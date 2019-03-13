@@ -343,7 +343,7 @@ public class Office365Connector extends BaseRepositoryConnector
   {
     for(String documentIdentifier : documentIdentifiers) {
       long startTime = System.currentTimeMillis();
-      String documentUri;
+      String documentUri = documentIdentifier;
       String activity = ACTIVITY_READ;
       String resultCode = null;
       String resultDesc = StringUtils.EMPTY;
@@ -438,6 +438,10 @@ public class Office365Connector extends BaseRepositoryConnector
         rd.setSourcePath(pathElem);
         documentUri = pathElem.stream().map(p -> URLEncoder.encode(p)).collect(Collectors.joining("/", "/", "/")) + URLEncoder.encode(driveItem.name);
 
+        // Set other source fields
+        rd.addField("source", "Microsoft Office 365");
+        rd.addField("sourceUri", driveItem.webUrl);
+
         // TODO, METADATA, ACL
         // driveItem.permissions.getCurrentPage() etc.
 
@@ -475,7 +479,7 @@ public class Office365Connector extends BaseRepositoryConnector
       } finally {
         if (resultCode != null)
           activities.recordActivity(startTime, activity,
-            fileSize, documentIdentifier, resultCode, resultDesc, null);
+            fileSize, documentUri, resultCode, resultDesc, null);
       }
     }
   }
