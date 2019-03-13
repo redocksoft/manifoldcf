@@ -32,11 +32,9 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.message.BasicHeader;
 import org.apache.http.protocol.HttpRequestExecutor;
-import org.apache.manifoldcf.agents.incrementalingest.IncrementalIngester;
 import org.apache.manifoldcf.agents.output.BaseOutputConnector;
 import org.apache.manifoldcf.core.interfaces.*;
 import org.apache.manifoldcf.agents.interfaces.*;
-import org.apache.manifoldcf.crawler.system.WorkerThread;
 
 import java.util.*;
 import java.io.*;
@@ -387,7 +385,7 @@ public class reDockConnector extends BaseOutputConnector {
     HttpClient client = getSession();
     reDockAction reDock = new reDockAction(client, getConfigParameters(null));
     try {
-      reDock.executeGET();
+      reDock.executeGET("check");
       String resultName = reDock.getResult().name();
       if (resultName.equals("OK")) {
         JsonNode responseNode = reDock.getResponseJsonNode();

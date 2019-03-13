@@ -63,7 +63,7 @@ public class reDockConnection {
 
   protected StringBuffer getApiUrl() {
     StringBuffer url = new StringBuffer(serverLocation);
-    url.append("/syncdocument/");
+    url.append("/rest/v1/documents/");
     callUrlSnippet = url.toString();
     return url;
   }

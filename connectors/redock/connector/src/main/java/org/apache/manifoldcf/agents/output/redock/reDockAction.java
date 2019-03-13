@@ -34,10 +34,10 @@ public class reDockAction extends reDockConnection {
     super(config, client);
   }
 
-  public void executeGET()
+  public void executeGET(String action)
     throws ManifoldCFException, ServiceInterruption {
     StringBuffer url = getApiUrl();
-    HttpGet method = new HttpGet(url.toString());
+    HttpGet method = new HttpGet(url.toString() + action);
     call(method);
     String error = checkJson(jsonException);
     if (getResult() == Result.OK && error == null)
@@ -104,19 +104,15 @@ public class reDockAction extends reDockConnection {
 
   private class DocumentRequestEntity implements HttpEntity
   {
-
     private final RepositoryDocument document;
     private final InputStream inputStream;
     private final String documentURI;
-    private final String documentUuid;
 
     public DocumentRequestEntity(String documentURI, RepositoryDocument document)
-      throws ManifoldCFException
     {
       this.documentURI = documentURI;
       this.document = document;
       this.inputStream = document.getBinaryStream();
-      this.documentUuid = ManifoldCF.hash(documentURI);
     }
 
     @Override
@@ -172,12 +168,12 @@ public class reDockAction extends reDockConnection {
         }
 
         // Push source name
-        needComma = writeField(pw, needComma, "source",  new String[]{reDockConnector.REDOCK_SOURCE_NAME});
+        needComma = writeField(pw, needComma, "forwardedBy", new String[]{reDockConnector.REDOCK_SOURCE_NAME});
 
         // Push origin URL
         if (documentURI != null)
         {
-          needComma = writeField(pw, needComma, "documentURI",  new String[]{documentURI});
+          needComma = writeField(pw, needComma, "forwardedByUri",  new String[]{documentURI});
         }
 
         // Standard document fields
