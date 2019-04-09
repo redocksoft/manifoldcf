@@ -306,7 +306,6 @@ public class Office365Connector extends BaseRepositoryConnector
             try {
               databaseHandle.beginTransaction();
 
-              // For Office delta api, the seeding always provide the changed/new/deleted files so we don't need to test with a lastVersion info.
               // Use the lastVersion as a container for the driveId so we can retrieve all documents that belong to a deleted drive for deletion.
               // Note that I've experimented with activities.addDocumentReference(documentIdentifier, String.format("drives/%s", driveItem.parentReference.driveId), "child")
               // and MODEL_CHAINED_CHANGE_ADD_DELETE to see if deletion on parent documentIdentifier would trickle down, but with no avail.
@@ -365,9 +364,8 @@ public class Office365Connector extends BaseRepositoryConnector
           Logging.connectors.debug("Office365: Processing document identifier '" + documentIdentifier + "' with name '" + driveItem.name + "'");
         }
 
-        // As stated above, we don't need to handle version with the delta api, so we use the lastversion string to
-        // contain documentIdentifier so we can filter by driveId.
-        String version = documentIdentifier;
+        // Version contains the full driveItem id as well as the modifiedDate
+        String version = documentIdentifier + " " + driveItem.lastModifiedDateTime.toInstant().toString();
         if (driveItem.size != null) fileSize = driveItem.size;
 
         // There are only two allowed version states, either "null" which means it has been seeded by the newDeltaLink, or
