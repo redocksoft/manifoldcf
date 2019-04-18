@@ -530,8 +530,19 @@ public class DBInterfacePostgreSQL extends Database implements IDBInterface
   {
     // Create a connection to the master database, using the credentials supplied
     Database masterDatabase = new DBInterfacePostgreSQL(context,"template1",adminUserName,adminPassword);
+    String userName = this.userName;
+
     try
     {
+      // fucking Azure, for some reason the username in the db has no @, but you have to login with an @ -- idiots
+      if(userName.contains("@")) {
+        userName = userName.substring(0, userName.indexOf("@"));
+      }
+
+      if(adminUserName.contains("@")) {
+        adminUserName = adminUserName.substring(0, adminUserName.indexOf("@"));
+      }
+
       // Create user
       List params = new ArrayList();
       params.add(userName);
@@ -556,7 +567,14 @@ public class DBInterfacePostgreSQL extends Database implements IDBInterface
 	masterDatabase.executeQuery("CREATE USER "+userName+" PASSWORD "+quotedPassword,null,
           null,invalidateKeys,null,false,0,null,null);
       }
-      
+
+      // Grant role
+      params.clear();
+      params.add(userName);
+      masterDatabase.prepareForDatabaseCreate();
+      masterDatabase.executeQuery("GRANT \"" + userName + "\" to \"" +
+        adminUserName + "\"", null, null, invalidateKeys, null, false, 0, null, null);
+
       // Create database
       params.clear();
       params.add(databaseName);
