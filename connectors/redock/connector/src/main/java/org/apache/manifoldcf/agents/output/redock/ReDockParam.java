@@ -4,12 +4,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.manifoldcf.core.interfaces.IHTTPOutput;
-import org.apache.manifoldcf.agents.output.redock.reDockParam.ParameterEnum;
+import org.apache.manifoldcf.agents.output.redock.ReDockParam.ParameterEnum;
 
 /**
  * Parameters data for the reDock output connector.
  */
-public class reDockParam extends HashMap<ParameterEnum, String> {
+public class ReDockParam extends HashMap<ParameterEnum, String> {
   /**
    * Parameters constants
    */
@@ -26,14 +26,14 @@ public class reDockParam extends HashMap<ParameterEnum, String> {
     }
   }
 
-  protected reDockParam(ParameterEnum[] params) {
+  protected ReDockParam(ParameterEnum[] params) {
     super(params.length);
   }
 
   final public Map<String, Object> buildMap(IHTTPOutput out) {
     Map<String, Object> rval = new HashMap<>();
     for (Map.Entry<ParameterEnum, String> entry : this.entrySet()) {
-      // See reDockParam as a template if we want to use
+      // See ReDockParam as a template if we want to use
       final String key = entry.getKey().name();
       rval.put(key, entry.getValue());
     }

@@ -1,4 +1,4 @@
-/* $Id: reDockConnector.java 988245 2010-08-23 18:39:35Z kwright $ */
+/* $Id: ReDockConnector.java 988245 2010-08-23 18:39:35Z kwright $ */
 
 /**
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -41,7 +41,7 @@ import java.io.*;
 
 /** This is a reDock output connector that sends the document to a reDock endpoint.
  */
-public class reDockConnector extends BaseOutputConnector {
+public class ReDockConnector extends BaseOutputConnector {
   // Activities we log
 
   /** Source name */
@@ -74,7 +74,7 @@ public class reDockConnector extends BaseOutputConnector {
 
   /** Constructor.
    */
-  public reDockConnector() {
+  public ReDockConnector() {
   }
 
   /** Return the list of activities that this connector supports (i.e. writes into the log).
@@ -101,7 +101,7 @@ public class reDockConnector extends BaseOutputConnector {
       int connectionTimeout = 60000;
 
       // Load configuration from parameters
-      final reDockConfig config = new reDockConfig(params);
+      final ReDockConfig config = new ReDockConfig(params);
 
       // Set up connection manager
       PoolingHttpClientConnectionManager poolingConnectionManager = new PoolingHttpClientConnectionManager(RegistryBuilder.<ConnectionSocketFactory>create()
@@ -132,7 +132,7 @@ public class reDockConnector extends BaseOutputConnector {
         // Provide
         .setDefaultHeaders(Arrays.asList(
           new BasicHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.getToken()),
-          new BasicHeader("X-RedockAuthMode", "REST-API")
+          new BasicHeader("X-RedockAuthMode", "internal_token")
         ))
         .build();
     }
@@ -212,20 +212,22 @@ public class reDockConnector extends BaseOutputConnector {
     throws ManifoldCFException, ServiceInterruption, IOException {
 
     // Reject temporary working documents that starts with ~
-    if (document.getFileName().startsWith("~"))
+    if (document.getFileName().startsWith("~")) {
       return DOCUMENTSTATUS_REJECTED;
+    }
 
     // Establish a session
     HttpClient client = getSession();
-    reDockConfig config = getConfigParameters(null);
-    reDockAction reDock = new reDockAction(client, config);
+    ReDockConfig config = getConfigParameters(null);
+    ReDockAction reDock = new ReDockAction(client, config);
 
     try
     {
       reDock.executePUT(documentURI, document);
 
-      if (reDock.getResult() != reDockConnection.Result.OK)
+      if (reDock.getResult() != ReDockConnection.Result.OK) {
         return DOCUMENTSTATUS_REJECTED;
+      }
 
       activities.recordActivity(null, INGEST_ACTIVITY, document.getBinaryLength(), documentURI, "OK", reDock.getResultDescription());
     }
@@ -262,8 +264,9 @@ public class reDockConnector extends BaseOutputConnector {
   @Override
   public boolean checkMimeTypeIndexable(VersionContext outputDescription, String mimeType, IOutputCheckActivity activities)
   {
-    if (mimeType == null)
+    if (mimeType == null) {
       return false;
+    }
     return acceptableMimeTypes.contains(mimeType.toLowerCase(Locale.ROOT));
   }
 
@@ -279,8 +282,8 @@ public class reDockConnector extends BaseOutputConnector {
     throws ManifoldCFException, ServiceInterruption {
     // Establish a session
     HttpClient client = getSession();
-    reDockConfig config = getConfigParameters(null);
-    reDockAction reDock = new reDockAction(client, config);
+    ReDockConfig config = getConfigParameters(null);
+    ReDockAction reDock = new ReDockAction(client, config);
 
     try
     {
@@ -310,7 +313,7 @@ public class reDockConnector extends BaseOutputConnector {
    * @param out
    * @throws ManifoldCFException */
   private static void outputResource(String resName, IHTTPOutput out,
-                                     Locale locale, reDockParam params,
+                                     Locale locale, ReDockParam params,
                                      String tabName, Integer sequenceNumber, Integer currentSequenceNumber) throws ManifoldCFException {
     Map<String, Object> paramMap = null;
     if (params != null) {
@@ -344,7 +347,7 @@ public class reDockConnector extends BaseOutputConnector {
     throws ManifoldCFException, IOException {
     try {
       super.outputConfigurationBody(threadContext, out, locale, parameters, tabName);
-      reDockConfig config = this.getConfigParameters(parameters);
+      ReDockConfig config = this.getConfigParameters(parameters);
       outputResource(EDIT_CONFIG_FORWARD_SERVER, out, locale, config, tabName, null, null);
     } catch (Exception e) {
       e.printStackTrace();
@@ -355,11 +358,11 @@ public class reDockConnector extends BaseOutputConnector {
    * getConfiguration() is used.
    *
    * @param configParams */
-  final private reDockConfig getConfigParameters(
+  final private ReDockConfig getConfigParameters(
     ConfigParams configParams) {
     if (configParams == null)
       configParams = getConfiguration();
-    return new reDockConfig(configParams);
+    return new ReDockConfig(configParams);
   }
 
   @Override
@@ -374,7 +377,7 @@ public class reDockConnector extends BaseOutputConnector {
   public String processConfigurationPost(IThreadContext threadContext,
                                          IPostParameters variableContext, ConfigParams parameters)
     throws ManifoldCFException {
-    return reDockConfig.contextToConfig(threadContext, variableContext, parameters);
+    return ReDockConfig.contextToConfig(threadContext, variableContext, parameters);
   }
 
   /** Test the connection.  Returns a string describing the connection integrity.
@@ -383,7 +386,7 @@ public class reDockConnector extends BaseOutputConnector {
   @Override
   public String check() throws ManifoldCFException {
     HttpClient client = getSession();
-    reDockAction reDock = new reDockAction(client, getConfigParameters(null));
+    ReDockAction reDock = new ReDockAction(client, getConfigParameters(null));
     try {
       reDock.executeGET("check");
       String resultName = reDock.getResult().name();

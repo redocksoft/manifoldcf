@@ -20,16 +20,15 @@ import org.apache.http.client.methods.HttpPut;
 import org.apache.http.message.BasicHeader;
 import org.apache.http.util.EntityUtils;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
-import org.apache.manifoldcf.agents.system.ManifoldCF;
 import org.apache.manifoldcf.core.common.Base64;
 import org.apache.manifoldcf.core.interfaces.ManifoldCFException;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.core.util.URLEncoder;
 import org.apache.manifoldcf.crawler.system.Logging;
 
-public class reDockAction extends reDockConnection {
+public class ReDockAction extends ReDockConnection {
 
-  public reDockAction(HttpClient client, reDockConfig config)
+  public ReDockAction(HttpClient client, ReDockConfig config)
     throws ManifoldCFException {
     super(config, client);
   }
@@ -40,8 +39,9 @@ public class reDockAction extends reDockConnection {
     HttpGet method = new HttpGet(url.toString() + action);
     call(method);
     String error = checkJson(jsonException);
-    if (getResult() == Result.OK && error == null)
+    if (getResult() == Result.OK && error == null) {
       return;
+    }
     setResult("JSONERROR", Result.ERROR, error);
     Logging.connectors.warn("reDock: Commit failed: " + getResponse());
   }
@@ -53,8 +53,9 @@ public class reDockAction extends reDockConnection {
     put.setEntity(new DocumentRequestEntity(documentURI, document));
     call(put);
     String error = checkJson(jsonException);
-    if (getResult() == Result.OK && error == null)
+    if (getResult() == Result.OK && error == null) {
       return;
+    }
 
     setResult("JSONERROR", Result.ERROR, error);
     Logging.connectors.warn("reDock: Commit failed: " + getResponse());
@@ -64,13 +65,14 @@ public class reDockAction extends reDockConnection {
     throws ManifoldCFException, ServiceInterruption {
     StringBuffer url = getApiUrl();
     String uri = URLEncoder.encode(documentURI);
-    // The token header is in reDockConnector and has the client name.
+    // The token header is in ReDockConnector and has the client name.
     // Once we support the AADV2 Authentication, we'll have to provide the ClientName and Env in the connection
     HttpDelete del = new HttpDelete(url.toString() + uri);
     call(del);
     String error = checkJson(jsonException);
-    if (getResult() == Result.OK || getResult() == Result.NOT_FOUND_ON_ENDPOINT && error == null)
+    if (getResult() == Result.OK || getResult() == Result.NOT_FOUND_ON_ENDPOINT && error == null) {
       return;
+    }
 
     setResult("JSONERROR", Result.ERROR, error);
     Logging.connectors.warn("reDock: Delete failed: " + getResponse());
@@ -90,8 +92,9 @@ public class reDockAction extends reDockConnection {
   protected void handleIOException(IOException e)
     throws ManifoldCFException, ServiceInterruption {
     // We want a quicker failure here!!
-    if (e instanceof java.io.InterruptedIOException && !(e instanceof java.net.SocketTimeoutException))
+    if (e instanceof java.io.InterruptedIOException && !(e instanceof java.net.SocketTimeoutException)) {
       throw new ManifoldCFException(e.getMessage(), ManifoldCFException.INTERRUPTED);
+    }
     setResult(e.getClass().getSimpleName().toUpperCase(Locale.ROOT), Result.ERROR, e.getMessage());
     long currentTime = System.currentTimeMillis();
     // One notification attempt, then we're done.
@@ -168,7 +171,7 @@ public class reDockAction extends reDockConnection {
         }
 
         // Push source name
-        needComma = writeField(pw, needComma, "forwardedBy", new String[]{reDockConnector.REDOCK_SOURCE_NAME});
+        needComma = writeField(pw, needComma, "forwardedBy", new String[]{ReDockConnector.REDOCK_SOURCE_NAME});
 
         // Push origin URL
         if (documentURI != null)
@@ -249,8 +252,9 @@ public class reDockAction extends reDockConnection {
                                       String fieldName, String[] fieldValues)
     throws IOException
   {
-    if (fieldValues == null)
+    if (fieldValues == null) {
       return needComma;
+    }
 
     if (fieldValues.length == 1){
       if (needComma)
@@ -326,8 +330,9 @@ public class reDockAction extends reDockConnection {
                                       String fieldName, Date[] fieldValues)
     throws IOException
   {
-    if (fieldValues == null)
+    if (fieldValues == null) {
       return needComma;
+    }
 
     if (fieldValues.length == 1){
       if (needComma)
