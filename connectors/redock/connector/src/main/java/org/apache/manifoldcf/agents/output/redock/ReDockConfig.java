@@ -3,7 +3,7 @@ package org.apache.manifoldcf.agents.output.redock;
 import org.apache.manifoldcf.core.interfaces.*;
 import java.util.Locale;
 
-public class reDockConfig extends reDockParam {
+public class ReDockConfig extends ReDockParam {
 
     final private static ParameterEnum[] CONFIGURATIONLIST =
     {
@@ -18,7 +18,7 @@ public class reDockConfig extends reDockParam {
      * set.
      *
      * @param params */
-    public reDockConfig(ConfigParams params)
+    public ReDockConfig(ConfigParams params)
     {
         super(CONFIGURATIONLIST);
         for (ParameterEnum param : CONFIGURATIONLIST)

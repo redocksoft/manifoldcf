@@ -34,13 +34,13 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
-public class reDockConnection {
+public class ReDockConnection {
 
   public enum Result {
     OK, NOT_FOUND_ON_ENDPOINT, ERROR, UNKNOWN
   }
 
-  protected final reDockConfig config;
+  protected final ReDockConfig config;
 
   private final HttpClient client;
   private final String serverLocation;
@@ -54,7 +54,7 @@ public class reDockConnection {
   protected final static String jsonException = "\"error\"";
   protected final ObjectMapper objectMapper;
 
-  protected reDockConnection(reDockConfig config, HttpClient client) {
+  protected ReDockConnection(ReDockConfig config, HttpClient client) {
     this.config = config;
     this.client = client;
     this.serverLocation = config.getServerLocation();
