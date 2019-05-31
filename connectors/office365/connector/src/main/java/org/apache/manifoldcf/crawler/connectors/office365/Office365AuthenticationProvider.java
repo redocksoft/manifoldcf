@@ -1,6 +1,7 @@
 package org.apache.manifoldcf.crawler.connectors.office365;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
 import com.microsoft.graph.http.IHttpRequest;
 import org.apache.http.Consts;
@@ -14,18 +15,16 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
-import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
-import org.apache.manifoldcf.core.interfaces.ConfigParams;
 import org.apache.manifoldcf.core.interfaces.ManifoldCFException;
 
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 
 class Office365AuthenticationProvider implements IAuthenticationProvider {
   public ManifoldCFException authenticationException = null;
   private HttpClient client;
   private Office365Config config;
+  private ObjectMapper objectMapper = new ObjectMapper();
 
   private static String office365GrantType = "client_credentials";
   private static String office365Scope = "https://graph.microsoft.com/.default";
@@ -77,7 +76,7 @@ class Office365AuthenticationProvider implements IAuthenticationProvider {
       String responseBody = client.execute(post, responseHandler);
 
       // Get token
-      JsonNode jsonResponse = Office365Connector.objectMapper.readTree(responseBody);
+      JsonNode jsonResponse = objectMapper.readTree(responseBody);
       cachedToken = jsonResponse.get("access_token").toString().replace("\"", "");
       tokenExpiryMillis = currentTimeMillis + 1000 * Long.parseLong(jsonResponse.get("expires_in").toString());
       return cachedToken;
