@@ -15,23 +15,8 @@
  * the License.
  */
 
-/**
- * This repository connector takes the configuration of Microsoft Application and reads the SharePoint Online sites that match
- * a site name pattern.  The application needs File.Read.All and Site.Read.ALl at the Microsoft Graph Level, and Sites.Read.All
- * at the SharPoint level.
- *
- * During the seeding, the connector uses the delta api https://docs.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance?view=odsp-graph-online
- * to read the new, changed, or deleted files and seeds them.
- * The document processing checks for these files and updates / deletes them accordingly.
- *
- * Possible Performance Optimization: The delta API lists deleted files, but the BaseConnector API from Manifold doesn't have
- * ways to queue for deletion without rechecking for the file on the repository. This in turn triggers request to Microsft API
- * that return 404 even thought we know where were deleted.  An optimization could be to create a managed table that keeps track
- * of the deltaLink driveItem requets and that is verified during the processDocuments instead of reissuing a check request on the graph.
- */
 package org.apache.manifoldcf.crawler.connectors.office365;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.graph.http.GraphServiceException;
 import com.microsoft.graph.models.extensions.Drive;
 import com.microsoft.graph.models.extensions.DriveItem;
@@ -48,33 +33,41 @@ import org.apache.manifoldcf.crawler.interfaces.IExistingVersions;
 import org.apache.manifoldcf.crawler.interfaces.IProcessActivity;
 import org.apache.manifoldcf.crawler.interfaces.ISeedingActivity;
 import org.apache.manifoldcf.crawler.system.Logging;
-import org.apache.manifoldcf.crawler.system.ManifoldCF;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/**
+ * This repository connector takes the configuration of Microsoft Application and reads the SharePoint Online sites that match
+ * a site name pattern.  The application needs File.Read.All and Site.Read.ALl at the Microsoft Graph Level, and Sites.Read.All
+ * at the SharePoint level.
+ *
+ * The connector does a full crawl of the source repository on each job run. The seeds are each site that matches the
+ * site selector configuration. In the future, we should be able to make the crawl more network and CPU efficient by
+ * taking advantage of the delta api
+ * https://docs.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance?view=odsp-graph-online to read
+ * only the new, changed, or deleted files. The main problem with using the delta API is that it operates at the site
+ * level, and not at the level above. Since our seeds are sites (and this is useful for carry-down data from site to
+ * document, as well as to track the relationship between document and site explicitly in Manifold), the delta API
+ * has to be called in {@link #processDocuments}, but cannot be because Manifold expects the added/changed/deleted
+ * documents to be provided by {@link #addSeedDocuments}. Need to think about how to work around this.
+ */
 public class Office365Connector extends BaseRepositoryConnector
 {
-
-  // to move into settings
-  public final static ObjectMapper objectMapper = new ObjectMapper();
-
   protected Office365Session session;
-  protected IDBInterface databaseHandle;
 
   private final static String ACTIVITY_READ = "read document";
-  private final static String ACTIVITY_DELETE_DRIVE = "delete drive";
   private final static String ACTIVITY_DELETE_DOCUMENT = "delete document";
 
   private final static String ACTIVITY_FETCH = "fetch";
+
+  private static final String RELATIONSHIP_CONTAINED = "contained";
+  private static final String RELATIONSHIP_CHILD = "child";
 
   // Template Names
   private static final String VIEW_CONFIG_FORWARD = "viewConfiguration.html";
@@ -90,9 +83,6 @@ public class Office365Connector extends BaseRepositoryConnector
   private static final Pattern DOMAIN_PATTERN = Pattern.compile("https://(.*?)/");
   private static final Pattern SITE_PATTERN = Pattern.compile("sites/(.*?)/");
 
-  /**
-   * Constructor.
-   */
   public Office365Connector()
   {
     super();
@@ -105,20 +95,21 @@ public class Office365Connector extends BaseRepositoryConnector
   }
 
   @Override
-  public String[] getRelationshipTypes()
-  {
-    return new String[]{};
-  }
-
-  @Override
   public int getConnectorModel()
   {
-    return Office365Connector.MODEL_ADD_CHANGE_DELETE;
+    return MODEL_ALL;
   }
 
   @Override
   public String[] getActivitiesList() {
     return new String[]{ACTIVITY_FETCH, ACTIVITY_READ};
+  }
+
+  @Override
+  public String[] getRelationshipTypes()
+  {
+    // contained is a document in a site, child is a document/folder in a folder
+    return new String[] {RELATIONSHIP_CONTAINED, RELATIONSHIP_CHILD};
   }
 
   /**
@@ -153,18 +144,6 @@ public class Office365Connector extends BaseRepositoryConnector
   }
 
   @Override
-  public void setThreadContext(IThreadContext threadContext)
-    throws ManifoldCFException
-  {
-    super.setThreadContext(threadContext);
-
-    databaseHandle = DBInterfaceFactory.make(threadContext,
-      org.apache.manifoldcf.crawler.system.ManifoldCF.getMasterDatabaseName(),
-      org.apache.manifoldcf.crawler.system.ManifoldCF.getMasterDatabaseUsername(),
-      ManifoldCF.getMasterDatabasePassword());
-  }
-
-  @Override
   public boolean isConnected()
   {
     return session != null;
@@ -181,7 +160,10 @@ public class Office365Connector extends BaseRepositoryConnector
     }
   }
 
-  final private Office365Config getConfigParameters() { return getConfigParameters(null); }
+  final private Office365Config getConfigParameters()
+  {
+    return getConfigParameters(null);
+  }
 
   final private Office365Config getConfigParameters(ConfigParams configParams)
   {
@@ -205,8 +187,8 @@ public class Office365Connector extends BaseRepositoryConnector
 
   /**
    * Using the SITE.NAME_PATTERN from the SITES spec, retrieve all the unique Drives.  Seed them using Microsoft
-   * drive/root/delta incremental API (https://docs.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance?view=odsp-graph-online)
-   * and
+   * drive API (https://docs.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance?view=odsp-graph-online).
+   *
    * @param activities is the interface this method should use to perform whatever framework actions are desired.
    * @param spec is a document specification (that comes from the job).
    * @param lastSeedVersion
@@ -221,118 +203,22 @@ public class Office365Connector extends BaseRepositoryConnector
                                  String lastSeedVersion, long seedTime, int jobMode)
     throws ManifoldCFException, ServiceInterruption
   {
+    Logging.connectors.info("O365: seeding sites to be traversed");
+
     Office365Config config = getConfigParameters();
-    HashMap<String, String> previousSiteDeltas = new HashMap();
-    HashMap<String, String> newSiteDeltas = new HashMap();
 
-    // Extract the (drive, delta url) from previous seeding
-    if (lastSeedVersion != null && lastSeedVersion.length() > 0) {
-      for (String siteDeltaPair : lastSeedVersion.split(";;")) {
-        String[] siteDeltaTokens = siteDeltaPair.split("::");
-        previousSiteDeltas.put(siteDeltaTokens[0], siteDeltaTokens[1]);
-      }
+    // TODO move into a background thread
+    for (Site site : currentSites(spec)) {
+      // TODO move into a background thread
+      Drive drive = session.getDriveForSite(site.id);
+
+      // we create one seed "virtual" document for each site that needs to be traversed
+      // the format is SITESEED::siteid::driveid
+      Logging.connectors.info(String.format("O365: Seeding site %s on domain %s (id: %s, driveid: %s)", site.displayName, config.getOrganizationDomain(), site.id, drive.id));
+      activities.addSeedDocument(String.format("SITESEED::%s::%s", site.id, drive.id));
     }
 
-    try {
-      // Build Drive path based on sites that match the sites name patterns. Redo it at every seeding as new sites may have been added
-      for (int i = 0; i < spec.getChildCount(); i++) {
-        SpecificationNode sn = spec.getChild(i);
-        if (sn.getType().equals(Office365Config.SITE_ATTR)) {
-          String siteNamePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
-
-          List<Site> sites = session.getSites(siteNamePattern);
-          for (Site site : sites) {
-            // Setup root folder newDeltaLink using the site accessor to root drive
-            Logging.connectors.info("Seeding site " + site.displayName + " on domain " + config.getOrganizationDomain() + " (id: " + site.id + ").");
-            // Use the newDeltaLink provided as part of the previous seeding
-            if (previousSiteDeltas.containsKey(site.id)) {
-              newSiteDeltas.put(site.id, previousSiteDeltas.get(site.id));
-            } else {
-              // Build first deltaLink using the drive path
-              Drive newSiteDrive = session.getDriveForSite(site.id);
-              newSiteDeltas.put(site.id, String.format("%s/drives/%s/root/delta", session.getServiceRoot(), newSiteDrive.id));
-            }
-          }
-        }
-      }
-
-      // Process all sites that have a delta request
-      List<ExecuteSeedingThread> seedingThreads = newSiteDeltas.entrySet().stream()
-        .map(s -> new ExecuteSeedingThread(s.getKey(), s.getValue())).collect(Collectors.toList());
-
-      if (seedingThreads.size() > 0) {
-        ExecutorService pool = Executors.newFixedThreadPool(8);
-        for (final ExecuteSeedingThread seedThread : seedingThreads) {
-          pool.execute(seedThread);
-        }
-
-        pool.shutdown();
-        pool.awaitTermination(10, TimeUnit.MINUTES);
-      }
-
-      for(ExecuteSeedingThread seedingThread : seedingThreads) {
-        Exception e = seedingThread.getException();
-        if (e != null) {
-          if (isThrottle(e)) {
-            // Keep the current newDeltaLink in the queue and revisit with next seeding
-            Logging.connectors.warn("GraphAPI connection throttled.");
-          } else {
-            handleException(e);
-          }
-        } else {
-          // Seed documents
-          for (String documentIdentifier : seedingThread.getResult().documentIdentifiers) {
-            activities.addSeedDocument(documentIdentifier);
-          }
-
-          // Add the site drive itself as a parent document if this is the original seed
-          if (!seedingThread.getSiteDeltaLink().contains("?token=")) {
-            String driveId = session.getDriveIdFromUrlSegment(seedingThread.getSiteDeltaLink());
-            activities.addSeedDocument(String.format("drives/%s", driveId));
-          }
-
-          // Update newDeltaLink
-          newSiteDeltas.put(seedingThread.getSiteId(), seedingThread.getResult().newDeltaLink);
-        }
-      }
-
-      // Identify the sites that existed during the last seed but that have been deleted since then
-      for (Map.Entry<String, String> previousSiteDelta : previousSiteDeltas.entrySet()) {
-        if (!newSiteDeltas.containsKey(previousSiteDelta.getKey())) {
-          String driveId = session.getDriveIdFromUrlSegment(previousSiteDelta.getValue());
-          if (driveId != null) {
-            // Seed all files that belonged to the unreachable drive.  ProcessDocument will attempt to reach each file
-            // and delete the unreachable one.
-            try {
-              databaseHandle.beginTransaction();
-
-              // Use the lastVersion as a container for the driveId so we can retrieve all documents that belong to a deleted drive for deletion.
-              // Note that I've experimented with activities.addDocumentReference(documentIdentifier, String.format("drives/%s", driveItem.parentReference.driveId), "child")
-              // and MODEL_CHAINED_CHANGE_ADD_DELETE to see if deletion on parent documentIdentifier would trickle down, but with no avail.
-              String childDocumentQuery = "WHERE lastversion LIKE '%" + driveId + "%'";
-              IResultSet set = databaseHandle.performQuery("SELECT lastversion FROM ingeststatus " + childDocumentQuery, new ArrayList(), null, null);
-
-              for (int i = 0; i < set.getRowCount(); i++) {
-                IResultRow row = set.getRow(i);
-                String containedDocumentIdentifier = (String) row.getValue("lastversion");
-                activities.addSeedDocument(containedDocumentIdentifier);
-              }
-            } catch (Exception e) {
-              handleException(e);
-            } finally {
-              databaseHandle.endTransaction();
-            }
-          }
-        }
-      }
-    }
-    catch(Exception e) {
-      handleException(e);
-    }
-
-    // pack the sitesToDelta for next seeding
-    String versionInfo = newSiteDeltas.entrySet().stream().map(siteDelta -> siteDelta.getKey() + "::" + siteDelta.getValue()).collect(Collectors.joining(";;"));
-    return versionInfo;
+    return null;
   }
 
   @Override
@@ -340,145 +226,215 @@ public class Office365Connector extends BaseRepositoryConnector
                                IProcessActivity activities, int jobMode, boolean usesDefaultAuthority)
     throws ManifoldCFException, ServiceInterruption
   {
-    for(String documentIdentifier : documentIdentifiers) {
-      long startTime = System.currentTimeMillis();
-      String documentUri = documentIdentifier;
-      String activity = ACTIVITY_READ;
-      String resultCode = null;
-      String resultDesc = StringUtils.EMPTY;
-      Long fileSize = 0L;
+    Logging.connectors.info(String.format("O365: Processing documents: %s", Arrays.deepToString(documentIdentifiers)));
 
+    for (String documentIdentifier : documentIdentifiers) {
+      String[] idComponents = documentIdentifier.split("::");
+      String siteId = idComponents[1];
+      String driveId = idComponents[2];
+
+      if (documentIdentifier.startsWith("SITESEED::")) {
+        // TODO do in a background thread, do like GetChildrenThread in Google, and XThreadStringBuffer to process
+        // the items as they are read
+        for (DriveItem item : session.getDriveItems(driveId)) {
+          String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, item.id);
+          activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CONTAINED,
+              new String[]{"Site"}, new String[][]{new String[]{siteId}});
+        }
+      } else if (documentIdentifier.startsWith("DOC::")) {
+        String itemId = idComponents[3];
+
+        DriveItem item = session.getDriveItem(driveId, itemId);
+
+        if(item.folder != null) {
+          // folder
+          if (Logging.connectors.isDebugEnabled()) {
+            Logging.connectors.debug(String.format("O365: item %s is a folder", item.id));
+          }
+
+          // adding all the children + subdirs for a folder
+          // TODO background GetChildrenThread
+
+          for (DriveItem childItem : session.getDriveItemsUnderItem(driveId, item.id)) {
+            // TODO add other carry-down data from the site, and the parent folder?
+            String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, childItem.id);
+            activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CHILD,
+                new String[] {"Site"}, new String[][]{new String[] {siteId}});
+          }
+        } else {
+          // file
+          if (Logging.connectors.isDebugEnabled()) {
+            Logging.connectors.debug(String.format("O365: item %s is a file", item.id));
+          }
+
+          processDriveDocument(documentIdentifier, siteId, driveId, item, activities);
+        }
+      } else {
+        throw new IllegalStateException("Unexpected document identifier " + documentIdentifier);
+      }
+    }
+  }
+
+  private void processDriveDocument(String documentIdentifier, String siteId, String driveId, DriveItem driveItem,
+                                    IProcessActivity activities)
+    throws ManifoldCFException, ServiceInterruption
+  {
+    long startTime = System.currentTimeMillis();
+    String activity = ACTIVITY_READ;
+    String documentUri = null;
+    String resultCode = null;
+    String resultDesc = StringUtils.EMPTY;
+    Long fileSize = 0L;
+
+    try {
+      // If driveItem is null and thus not found (404) delete from index.
+      if (driveItem == null) {
+        activities.deleteDocument(documentIdentifier);
+        activity = ACTIVITY_DELETE_DOCUMENT;
+        resultCode = "OK";
+        return;
+      }
+
+      // We have a file that was seeded.
+      if (Logging.connectors.isDebugEnabled()) {
+        Logging.connectors.debug("O365: Processing document identifier '" + documentIdentifier + "' with name '" + driveItem.name + "'");
+      }
+
+      // Version is the etag (any change in file content or metadata changes the version)
+      // we also have driveItem.publication.versionId, perhaps that might be of some use?
+      String version = driveItem.eTag;
+      if (driveItem.size != null) fileSize = driveItem.size;
+
+      // There are only two allowed version states, either "null" which means it has been seeded by the newDeltaLink, or
+      // "processed" which confirms the file has been processed by the routine below so no need to redo it.
+      if (!activities.checkDocumentNeedsReindexing(documentIdentifier, version)) {
+        return;
+      }
+
+      // We shouldn't get a folder here
+      if (driveItem.folder != null) {
+        throw new IllegalStateException("Did not expect a folder item.");
+      }
+
+      if (fileSize == 0L) {
+        resultCode = IOutputHistoryActivity.EXCEPTION;
+        resultDesc = "Empty file";
+        Logging.connectors.debug("O365: Empty file not processed.");
+        return;
+      }
+
+      // URI tokens
+      List<String> pathElem = new ArrayList<>();
+
+      if (!activities.checkLengthIndexable(driveItem.size)) {
+        resultCode = activities.EXCLUDED_LENGTH;
+        resultDesc = "Excluding document because of file length ('" + driveItem.size + "')";
+        activities.noDocument(documentIdentifier, version);
+        return;
+      }
+
+      if (!activities.checkMimeTypeIndexable(driveItem.file.mimeType)) {
+        resultCode = activities.EXCLUDED_MIMETYPE;
+        resultDesc = "Excluding document because of mime type (" + driveItem.file.mimeType + ")";
+        activities.noDocument(documentIdentifier, version);
+        return;
+      }
+
+      if (!activities.checkDateIndexable(driveItem.lastModifiedDateTime.getTime())) {
+        resultCode = activities.EXCLUDED_DATE;
+        resultDesc = "Excluding document because of date (" + driveItem.lastModifiedDateTime.getTime() + ")";
+        activities.noDocument(documentIdentifier, version);
+        return;
+      }
+
+      RepositoryDocument rd = new RepositoryDocument();
+      rd.setFileName(driveItem.name);
+      rd.setCreatedDate(driveItem.fileSystemInfo.createdDateTime.getTime());
+      rd.setModifiedDate(driveItem.fileSystemInfo.lastModifiedDateTime.getTime());
+      rd.setIndexingDate(new Date());
+      rd.setOriginalSize(driveItem.size);
+      rd.setMimeType(driveItem.file.mimeType);
+
+      // Harvest human readable paths to set in the rootPath (domain & site) and sourcePath (folder structure)
+      Matcher mDomain = DOMAIN_PATTERN.matcher(driveItem.webUrl);
+      Matcher mSite = SITE_PATTERN.matcher(driveItem.webUrl);
+      if (mDomain.find()) pathElem.add(mDomain.group(1));
+      if (mSite.find()) pathElem.add(mSite.group(1));
+
+      rd.setRootPath(pathElem);
+
+      String[] pathTokens = driveItem.parentReference.path.split(":");
+      if (pathTokens.length > 1) {
+        pathElem.addAll(Arrays.asList(StringUtils.strip(pathTokens[1], "/").split("/")));
+      }
+
+      rd.setSourcePath(pathElem);
+      documentUri = pathElem.stream().map(p -> URLEncoder.encode(p)).collect(Collectors.joining("/", "/", "/")) + URLEncoder.encode(driveItem.name);
+
+      // Set other source fields
+      rd.addField("source", "Microsoft Office 365");
+      rd.addField("office365.org", getConfigParameters().getOrganizationDomain());
+      rd.addField("office365.siteId", siteId);
+      rd.addField("office365.driveId", driveId);
+      rd.addField("office365.id", driveItem.id);
+      // TODO here we are setting the URL directly as the URI, which isn't quite right, as URLs can change -- we
+      //  really should be storing something like the resource id, along with the office 365 instance/tenant/site/etc.,
+      //  and then use that to lookup the webUrl if we need it i.e. the URI should get us to a DriveItem, not to a web
+      //  resource
+      rd.addField("sourceUri", driveItem.webUrl);
+
+      // TODO, METADATA, ACL
+      // driveItem.permissions.getCurrentPage() etc.
+
+      // Fire up the document reading thread
+      DocumentReadingThread t = new DocumentReadingThread(driveItem);
+      t.start();
       try {
-        DriveItem driveItem = session.getDriveItem(documentIdentifier);
-
-        // If driveItem is null and thus not found (404) delete from index.
-        if (driveItem == null) {
-          activities.deleteDocument(documentIdentifier);
-          activity = ACTIVITY_DELETE_DOCUMENT;
-          resultCode = "OK";
-          continue;
-        }
-
-        // We have a file that was seeded.
-        if (Logging.connectors.isDebugEnabled()) {
-          Logging.connectors.debug("Office365: Processing document identifier '" + documentIdentifier + "' with name '" + driveItem.name + "'");
-        }
-
-        // Version contains the full driveItem id as well as the modifiedDate
-        String version = documentIdentifier + " " + driveItem.lastModifiedDateTime.toInstant().toString();
-        if (driveItem.size != null) fileSize = driveItem.size;
-
-        // There are only two allowed version states, either "null" which means it has been seeded by the newDeltaLink, or
-        // "processed" which confirms the file has been processed by the routine below so no need to redo it.
-        if (!activities.checkDocumentNeedsReindexing(documentIdentifier, version)) {
-          continue;
-        }
-
-        // Don't do anything for folders as the delta api explicitly defines state of all the files from all folders.
-        if (driveItem.folder != null) {
-          continue;
-        }
-
-        if (fileSize == 0L) {
-          resultCode = IOutputHistoryActivity.EXCEPTION;
-          resultDesc = "Empty file";
-          Logging.connectors.debug("Office365: Empty file not processed.");
-          continue;
-        }
-
-        // URI tokens
-        List<String> pathElem = new ArrayList<>();
-
-        if (!activities.checkLengthIndexable(driveItem.size)) {
-          resultCode = activities.EXCLUDED_LENGTH;
-          resultDesc = "Excluding document because of file length ('"+driveItem.size+"')";
-          activities.noDocument(documentIdentifier, version);
-          continue;
-        }
-
-        if (!activities.checkMimeTypeIndexable(driveItem.file.mimeType))
-        {
-          resultCode = activities.EXCLUDED_MIMETYPE;
-          resultDesc = "Excluding document because of mime type ("+driveItem.file.mimeType+")";
-          activities.noDocument(documentIdentifier, version);
-          continue;
-        }
-
-        if (!activities.checkDateIndexable(driveItem.lastModifiedDateTime.getTime()))
-        {
-          resultCode = activities.EXCLUDED_DATE;
-          resultDesc = "Excluding document because of date ("+driveItem.lastModifiedDateTime.getTime()+")";
-          activities.noDocument(documentIdentifier, version);
-          continue;
-        }
-
-        RepositoryDocument rd = new RepositoryDocument();
-        rd.setFileName(driveItem.name);
-        rd.setCreatedDate(driveItem.fileSystemInfo.createdDateTime.getTime());
-        rd.setModifiedDate(driveItem.fileSystemInfo.lastModifiedDateTime.getTime());
-        rd.setIndexingDate(new Date());
-        rd.setOriginalSize(driveItem.size);
-        rd.setMimeType(driveItem.file.mimeType);
-
-        // Harvest human readable paths to set in the rootPath (domain & site) and sourcePath (folder structure)
-        Matcher mDomain = DOMAIN_PATTERN.matcher(driveItem.webUrl);
-        Matcher mSite = SITE_PATTERN.matcher(driveItem.webUrl);
-        if (mDomain.find()) pathElem.add(mDomain.group(1));
-        if (mSite.find()) pathElem.add(mSite.group(1));
-
-        rd.setRootPath(pathElem);
-
-        String[] pathTokens = driveItem.parentReference.path.split(":");
-        if (pathTokens.length > 1) {
-          pathElem.addAll(Arrays.asList(StringUtils.strip(pathTokens[1], "/").split("/")));
-        }
-
-        rd.setSourcePath(pathElem);
-        documentUri = pathElem.stream().map(p -> URLEncoder.encode(p)).collect(Collectors.joining("/", "/", "/")) + URLEncoder.encode(driveItem.name);
-
-        // Set other source fields
-        rd.addField("source", "Microsoft Office 365");
-        rd.addField("sourceUri", driveItem.webUrl);
-
-        // TODO, METADATA, ACL
-        // driveItem.permissions.getCurrentPage() etc.
-
-        // Fire up the document reading thread
-        DocumentReadingThread t = new DocumentReadingThread(driveItem);
+        boolean wasInterrupted = false;
         try {
-          t.start();
-          boolean wasInterrupted = false;
           InputStream is = t.getSafeInputStream();
           try {
             rd.setBinary(is, driveItem.size);
             activities.ingestDocumentWithException(documentIdentifier, version, documentUri, rd);
-          } catch (ManifoldCFException e) {
-            if (e.getErrorCode() == ManifoldCFException.INTERRUPTED)
-              wasInterrupted = true;
-            throw e;
-          } catch (Exception e) {
-            handleException(e);
+            // No errors.  Record the fact that we made it.
+            resultCode = "OK";
           } finally {
             is.close();
-            if (!wasInterrupted)
-              t.finishUp();
           }
-          // No errors.  Record the fact that we made it.
-          resultCode = "OK";
-        } catch (InterruptedException e) {
-          t.interrupt();
-          throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
-            ManifoldCFException.INTERRUPTED);
-        } catch (Exception e) {
-          handleException(e);
+        } catch (java.net.SocketTimeoutException e) {
+          throw e;
+        } catch (InterruptedIOException e) {
+          wasInterrupted = true;
+          throw e;
+        } catch (ManifoldCFException e) {
+          if (e.getErrorCode() == ManifoldCFException.INTERRUPTED)
+            wasInterrupted = true;
+          throw e;
+        } finally {
+          if (!wasInterrupted)
+            // This does a join
+            t.finishUp();
         }
+
+      } catch (InterruptedException | InterruptedIOException e) {
+        // We were interrupted out of the join, most likely.  Before we abandon the thread,
+        // send a courtesy interrupt.
+        t.interrupt();
+        throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
+                ManifoldCFException.INTERRUPTED);
       } catch (Exception e) {
+        resultCode = e.getClass().getSimpleName().toUpperCase(Locale.ROOT);
+        resultDesc = e.getMessage();
         handleException(e);
-      } finally {
-        if (resultCode != null)
-          activities.recordActivity(startTime, activity,
-            fileSize, documentUri, resultCode, resultDesc, null);
       }
+    } catch (ManifoldCFException e) {
+      if (e.getErrorCode() == ManifoldCFException.INTERRUPTED)
+        resultCode = null;
+      throw e;
+    } finally {
+      if (resultCode != null)
+        activities.recordActivity(startTime, activity,
+                fileSize, documentUri, resultCode, resultDesc, null);
     }
   }
 
@@ -628,7 +584,7 @@ public class Office365Connector extends BaseRepositoryConnector
             );
           }
         } catch (Exception e) {
-          Logging.connectors.debug("getSites exception: " + e.getMessage());
+          Logging.connectors.debug("O365: getSites exception: " + e.getMessage());
           node.setAttribute(Office365Config.SITE_STATUS_ATTR, "Site invalid.");
         }
         ds.addChild(ds.getChildCount(), node);
@@ -674,18 +630,14 @@ public class Office365Connector extends BaseRepositoryConnector
     if (e instanceof GraphServiceException) {
       int code = ((GraphServiceException)e).getResponseCode();
       return code == 503 || code == 509 || code == 429;
-    } else if (e instanceof java.net.SocketTimeoutException || e instanceof InterruptedIOException) {
-      return true;
-    }
-    return false;
+    } else return e instanceof InterruptedIOException;
   }
 
   protected static void handleException(Exception e)
     throws ManifoldCFException, ServiceInterruption
   {
-    String errorMessage = String.format("Office365: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
-    Logging.connectors.debug(errorMessage);
-    e.printStackTrace();
+    String errorMessage = String.format("O365: exception: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
+    Logging.connectors.debug(errorMessage, e);
     if (isThrottle(e)) {
       long currentTime = System.currentTimeMillis();
       throw new ServiceInterruption(errorMessage, e, currentTime + 300000L, currentTime + 3 * 60 * 60000L, -1, false);
@@ -694,45 +646,7 @@ public class Office365Connector extends BaseRepositoryConnector
     }
   }
 
-  protected class ExecuteSeedingThread extends Thread
-  {
-    protected final String siteId;
-
-    protected final String siteDeltaLink;
-
-    protected Office365Session.DriveDeltaResult driveDeltaResult = null;
-
-    protected Exception exception = null;
-
-    public ExecuteSeedingThread(String siteId, String siteDeltaLink)
-    {
-      super();
-      this.siteId = siteId;
-      this.siteDeltaLink = siteDeltaLink;
-      setDaemon(true);
-    }
-
-    @Override
-    public void run()
-    {
-      try {
-        driveDeltaResult = session.getDocumentIdentifiersFromDelta(this.siteDeltaLink);
-      } catch (Exception e) {
-        exception = e;
-      }
-    }
-
-    public Exception getException() { return exception; }
-
-    public String getSiteId() { return siteId; }
-
-    public String getSiteDeltaLink() { return siteDeltaLink; }
-
-    public Office365Session.DriveDeltaResult getResult() { return driveDeltaResult; }
-  }
-
   protected class DocumentReadingThread extends Thread {
-
     protected Throwable exception = null;
     protected final DriveItem driveItem;
     protected InputStream sourceStream;
@@ -751,7 +665,7 @@ public class Office365Connector extends BaseRepositoryConnector
         try {
           synchronized (this) {
             if (!abortThread) {
-              sourceStream = session.getDriveItemOutputStream(driveItem);
+              sourceStream = session.getDriveItemInputStream(driveItem);
               threadStream = new XThreadInputStream(sourceStream);
               this.notifyAll();
             }
@@ -824,5 +738,21 @@ public class Office365Connector extends BaseRepositoryConnector
         }
       }
     }
+  }
+
+  /**
+   * Given a job specification, return the current Office 365 sites that match.
+   * @param spec
+   * @return sites
+   */
+  private List<Site> currentSites(Specification spec) {
+    for (int i = 0; i < spec.getChildCount(); i++) {
+      SpecificationNode sn = spec.getChild(i);
+      if (sn.getType().equals(Office365Config.SITE_ATTR)) {
+        String siteNamePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
+        return session.getSites(siteNamePattern);
+      }
+    }
+    throw new IllegalArgumentException("Specification did not contain site pattern.");
   }
 }

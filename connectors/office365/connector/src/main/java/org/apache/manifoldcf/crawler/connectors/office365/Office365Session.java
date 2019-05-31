@@ -12,15 +12,9 @@ import org.apache.manifoldcf.core.util.URLEncoder;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class Office365Session
 {
-  private static String APPNAME = "ManifoldCF Office365 Connector";
-
-  private static final Pattern DRIVE_PATTERN = Pattern.compile("drives/(.*?)(/|$|\\?)");
-
   private IGraphServiceClient graphClient;
   private Office365Config config;
 
@@ -35,8 +29,6 @@ public class Office365Session
         .buildClient();
     }
   }
-
-  public String  getServiceRoot() { return graphClient.getServiceRoot(); }
 
   public String check()
   {
@@ -67,23 +59,23 @@ public class Office365Session
       if (orgDefaultSite != null) {
         resultMsg.append("Connection to Office 365 organization domain successful.");
       } else {
-        resultMsg.append("Could connect to site \"" + orgDefaultSite.displayName + "\" successful.");
+        resultMsg.append("Could not connect to domain \"" + config.getOrganizationDomain() + "\".");
       }
     }
     catch(Exception ex) {
-      resultMsg.append("Failed to connect to domain with exception: " + ex.getMessage());
+      resultMsg.append("Could not connect to domain \"" + config.getOrganizationDomain() + "\". Exception: " + ex.getMessage());
     }
 
     return resultMsg.toString();
   }
 
   /**
-   * Retrieve all the sites id that match the site name pattern
+   * Retrieve all the sites id that match the site name pattern.
    */
   public List<Site> getSites(String siteNamePattern)
     throws ClientException
   {
-    List<Site> sites = new ArrayList();
+    List<Site> sites = new ArrayList<>();
 
     String siteSearch;
     if (siteNamePattern.matches("[a-zA-Z0-9\\s]*")) siteSearch = siteNamePattern;
@@ -109,47 +101,26 @@ public class Office365Session
     return sites;
   }
 
-  public class DriveDeltaResult
-  {
-    public String newDeltaLink;
-    public String driveId;
-    public List<String> documentIdentifiers = new ArrayList<>();
+  public List<DriveItem> getDriveItems(String driveId) {
+    List<DriveItem> items = new ArrayList<>();
+    IDriveItemCollectionRequest request = graphClient.drives(driveId).root().children().buildRequest();
+    IDriveItemCollectionPage page = request.get();
+    while (page != null) {
+      items.addAll(page.getCurrentPage());
+      page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
+    }
+    return items;
   }
 
-  /**
-   * Returns the collection of DriveItem representing files for a at a specific newDeltaLink.
-   * This also returns the next newDeltaLink.  Folders are omitted as the delta collection explicitly describes the state of each individual file.
-   * @param deltaLink
-   * @return
-   * @throws ClientException
-   */
-  public DriveDeltaResult getDocumentIdentifiersFromDelta(String deltaLink)
-  throws ClientException
-  {
-    DriveDeltaResult result = new DriveDeltaResult();
-    IDriveItemDeltaCollectionRequestBuilder reqBuilder = new DriveItemDeltaCollectionRequestBuilder(deltaLink, graphClient, null);
-
-    while (reqBuilder != null) {
-      IDriveItemDeltaCollectionPage driveItemDeltaCollectionPage = reqBuilder.buildRequest().get();
-      for (DriveItem driveItem : driveItemDeltaCollectionPage.getCurrentPage()) {
-        if (driveItem.folder == null) {
-          String documentIdentifier = String.format("drives/%s/items/%s", driveItem.parentReference.driveId, driveItem.id);
-          // Here, we get files that were created AND deleted (driveItem.deleted).  The processDocuments routine will delete documents upon getting a 404
-          // from the graph client.  Since we have the delete information, we could think about passing it into the processing.  However,
-          // altering the documentIdentifier with a ?op=delete for instance creates a new document and doesn't load the correct one into context.
-          // Would probably need to persist the list of delete request using storage.  To limit development time, we will take the hit of doing a request on the
-          // file and do a 404.
-          result.documentIdentifiers.add(documentIdentifier);
-          if (result.driveId == null) result.driveId = driveItem.parentReference.driveId;
-        }
-      }
-      if (result.newDeltaLink == null) {
-        result.newDeltaLink = driveItemDeltaCollectionPage.deltaLink();
-      }
-      reqBuilder = driveItemDeltaCollectionPage.getNextPage();
+  public List<DriveItem> getDriveItemsUnderItem(String driveId, String itemId) {
+    List<DriveItem> items = new ArrayList<>();
+    IDriveItemCollectionRequest request = graphClient.drives(driveId).items(itemId).children().buildRequest();
+    IDriveItemCollectionPage page = request.get();
+    while (page != null) {
+      items.addAll(page.getCurrentPage());
+      page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
     }
-
-    return result;
+    return items;
   }
 
   public Drive getDriveForSite(String siteId)
@@ -169,51 +140,15 @@ public class Office365Session
     return drive;
   }
 
-  public String getDriveIdFromUrlSegment(String deltaLink) {
-    Matcher driveMatcher = DRIVE_PATTERN.matcher(deltaLink);
-    if (driveMatcher.find()) {
-      return driveMatcher.group(1);
-    }
-    return null;
-  }
-
-  public Drive getDrive(String documentIdentifier)
+  public DriveItem getDriveItem(String driveId, String itemId)
     throws ClientException
   {
-    Drive drive;
-    IDriveRequestBuilder reqBuilder = new DriveRequestBuilder(String.format("%s/%s", graphClient.getServiceRoot(), documentIdentifier), graphClient, null);
-    try {
-      drive = reqBuilder.buildRequest().get();
-    } catch (GraphServiceException e) {
-      if (e.getResponseCode() == 404) {
-        return null;
-      } else {
-        throw e;
-      }
-    }
-    return drive;
-  }
-
-  public DriveItem getDriveItem(String documentIdentifier)
-    throws ClientException
-  {
-    DriveItem driveItem;
-    IDriveItemRequestBuilder reqBuilder = new DriveItemRequestBuilder(String.format("%s/%s", graphClient.getServiceRoot(), documentIdentifier), graphClient, null);
-    try {
-      driveItem = reqBuilder.buildRequest().get();
-    } catch (GraphServiceException e) {
-      if (e.getResponseCode() == 404) {
-        return null;
-      } else {
-        throw e;
-      }
-    }
-    return driveItem;
+    return graphClient.drives(driveId).items(itemId).buildRequest().get();
   }
 
   /** Get a stream representing the specified document.
    */
-  public InputStream getDriveItemOutputStream(DriveItem driveItem)
+  public InputStream getDriveItemInputStream(DriveItem driveItem)
     throws ClientException
   {
      return graphClient
