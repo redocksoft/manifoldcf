@@ -7,7 +7,10 @@ import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.IGraphServiceClient;
 import com.microsoft.graph.models.extensions.Site;
 import com.microsoft.graph.requests.extensions.*;
+import org.apache.manifoldcf.core.interfaces.Specification;
+import org.apache.manifoldcf.core.interfaces.SpecificationNode;
 import org.apache.manifoldcf.core.util.URLEncoder;
+import org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold.XThreadObjectBuffer;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -70,6 +73,22 @@ public class Office365Session
   }
 
   /**
+   * Given a job specification, return the current Office 365 sites that match.
+   * @param spec
+   * @return sites
+   */
+  public List<Site> currentSites(Specification spec) {
+    for (int i = 0; i < spec.getChildCount(); i++) {
+      SpecificationNode sn = spec.getChild(i);
+      if (sn.getType().equals(Office365Config.SITE_ATTR)) {
+        String siteNamePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
+        return getSites(siteNamePattern);
+      }
+    }
+    throw new IllegalArgumentException("Specification did not contain site pattern.");
+  }
+
+  /**
    * Retrieve all the sites id that match the site name pattern.
    */
   public List<Site> getSites(String siteNamePattern)
@@ -112,15 +131,17 @@ public class Office365Session
     return items;
   }
 
-  public List<DriveItem> getDriveItemsUnderItem(String driveId, String itemId) {
-    List<DriveItem> items = new ArrayList<>();
+  public void getDriveItemsUnderItem(String driveId, String itemId, XThreadObjectBuffer<DriveItem> b)
+      throws InterruptedException
+  {
     IDriveItemCollectionRequest request = graphClient.drives(driveId).items(itemId).children().buildRequest();
     IDriveItemCollectionPage page = request.get();
     while (page != null) {
-      items.addAll(page.getCurrentPage());
+      for (DriveItem driveItem : page.getCurrentPage()) {
+        b.add(driveItem);
+      }
       page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
     }
-    return items;
   }
 
   public Drive getDriveForSite(String siteId)
