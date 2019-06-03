@@ -17,7 +17,6 @@
 
 package org.apache.manifoldcf.crawler.connectors.office365;
 
-import com.microsoft.graph.http.GraphServiceException;
 import com.microsoft.graph.models.extensions.Drive;
 import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.Site;
@@ -25,18 +24,17 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.manifoldcf.agents.interfaces.IOutputHistoryActivity;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
-import org.apache.manifoldcf.connectorcommon.common.XThreadInputStream;
 import org.apache.manifoldcf.core.interfaces.*;
 import org.apache.manifoldcf.core.util.URLEncoder;
 import org.apache.manifoldcf.crawler.connectors.BaseRepositoryConnector;
+import org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold.ThreadedInputStreamConsumer;
+import org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold.ThreadedObjectSupplier;
 import org.apache.manifoldcf.crawler.interfaces.IExistingVersions;
 import org.apache.manifoldcf.crawler.interfaces.IProcessActivity;
 import org.apache.manifoldcf.crawler.interfaces.ISeedingActivity;
 import org.apache.manifoldcf.crawler.system.Logging;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InterruptedIOException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -207,10 +205,8 @@ public class Office365Connector extends BaseRepositoryConnector
 
     Office365Config config = getConfigParameters();
 
-    // TODO move into a background thread
-    for (Site site : currentSites(spec)) {
-      // TODO move into a background thread
-      Drive drive = session.getDriveForSite(site.id);
+    for (Site site : new Office365ThreadedBlock<>(() -> session.currentSites(spec)).runBlocking()) {
+      Drive drive = new Office365ThreadedBlock<>(() -> session.getDriveForSite(site.id)).runBlocking();
 
       // we create one seed "virtual" document for each site that needs to be traversed
       // the format is SITESEED::siteid::driveid
@@ -236,7 +232,7 @@ public class Office365Connector extends BaseRepositoryConnector
       if (documentIdentifier.startsWith("SITESEED::")) {
         // TODO do in a background thread, do like GetChildrenThread in Google, and XThreadStringBuffer to process
         // the items as they are read
-        for (DriveItem item : session.getDriveItems(driveId)) {
+        for (DriveItem item : new Office365ThreadedBlock<>(() -> session.getDriveItems(driveId)).runBlocking()) {
           String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, item.id);
           activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CONTAINED,
               new String[]{"Site"}, new String[][]{new String[]{siteId}});
@@ -244,7 +240,7 @@ public class Office365Connector extends BaseRepositoryConnector
       } else if (documentIdentifier.startsWith("DOC::")) {
         String itemId = idComponents[3];
 
-        DriveItem item = session.getDriveItem(driveId, itemId);
+        DriveItem item = new Office365ThreadedBlock<>(() -> session.getDriveItem(driveId, itemId)).runBlocking();
 
         if(item.folder != null) {
           // folder
@@ -253,14 +249,15 @@ public class Office365Connector extends BaseRepositoryConnector
           }
 
           // adding all the children + subdirs for a folder
-          // TODO background GetChildrenThread
-
-          for (DriveItem childItem : session.getDriveItemsUnderItem(driveId, item.id)) {
+          ThreadedObjectSupplier<DriveItem> driveItemSupplier = new Office365ThreadedObjectSupplier<>(b ->
+              session.getDriveItemsUnderItem(driveId, item.id, b)
+          );
+          driveItemSupplier.onFetch(childItem -> {
             // TODO add other carry-down data from the site, and the parent folder?
             String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, childItem.id);
             activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CHILD,
                 new String[] {"Site"}, new String[][]{new String[] {siteId}});
-          }
+          });
         } else {
           // file
           if (Logging.connectors.isDebugEnabled()) {
@@ -386,47 +383,14 @@ public class Office365Connector extends BaseRepositoryConnector
       // TODO, METADATA, ACL
       // driveItem.permissions.getCurrentPage() etc.
 
-      // Fire up the document reading thread
-      DocumentReadingThread t = new DocumentReadingThread(driveItem);
-      t.start();
-      try {
-        boolean wasInterrupted = false;
-        try {
-          InputStream is = t.getSafeInputStream();
-          try {
-            rd.setBinary(is, driveItem.size);
-            activities.ingestDocumentWithException(documentIdentifier, version, documentUri, rd);
-            // No errors.  Record the fact that we made it.
-            resultCode = "OK";
-          } finally {
-            is.close();
-          }
-        } catch (java.net.SocketTimeoutException e) {
-          throw e;
-        } catch (InterruptedIOException e) {
-          wasInterrupted = true;
-          throw e;
-        } catch (ManifoldCFException e) {
-          if (e.getErrorCode() == ManifoldCFException.INTERRUPTED)
-            wasInterrupted = true;
-          throw e;
-        } finally {
-          if (!wasInterrupted)
-            // This does a join
-            t.finishUp();
-        }
-
-      } catch (InterruptedException | InterruptedIOException e) {
-        // We were interrupted out of the join, most likely.  Before we abandon the thread,
-        // send a courtesy interrupt.
-        t.interrupt();
-        throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
-                ManifoldCFException.INTERRUPTED);
-      } catch (Exception e) {
-        resultCode = e.getClass().getSimpleName().toUpperCase(Locale.ROOT);
-        resultDesc = e.getMessage();
-        handleException(e);
-      }
+      // Read data in a background thread
+      ThreadedInputStreamConsumer streamConsumer = new Office365ThreadedInputStreamConsumer(() -> session.getDriveItemInputStream(driveItem));
+      String finalDocumentUri = documentUri;
+      streamConsumer.onInput(is -> {
+        rd.setBinary(is, driveItem.size);
+        activities.ingestDocumentWithException(documentIdentifier, version, finalDocumentUri, rd);
+      });
+      resultCode = "OK";
     } catch (ManifoldCFException e) {
       if (e.getErrorCode() == ManifoldCFException.INTERRUPTED)
         resultCode = null;
@@ -624,135 +588,5 @@ public class Office365Connector extends BaseRepositoryConnector
       rval[i++] = (String) iter.next();
     }
     return rval;
-  }
-
-  protected static boolean isThrottle(Exception e) {
-    if (e instanceof GraphServiceException) {
-      int code = ((GraphServiceException)e).getResponseCode();
-      return code == 503 || code == 509 || code == 429;
-    } else return e instanceof InterruptedIOException;
-  }
-
-  protected static void handleException(Exception e)
-    throws ManifoldCFException, ServiceInterruption
-  {
-    String errorMessage = String.format("O365: exception: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
-    Logging.connectors.debug(errorMessage, e);
-    if (isThrottle(e)) {
-      long currentTime = System.currentTimeMillis();
-      throw new ServiceInterruption(errorMessage, e, currentTime + 300000L, currentTime + 3 * 60 * 60000L, -1, false);
-    } else {
-      throw new ManifoldCFException(errorMessage, e);
-    }
-  }
-
-  protected class DocumentReadingThread extends Thread {
-    protected Throwable exception = null;
-    protected final DriveItem driveItem;
-    protected InputStream sourceStream;
-    protected XThreadInputStream threadStream;
-    protected boolean abortThread;
-
-    public DocumentReadingThread(DriveItem driveItem) {
-      super();
-      this.driveItem = driveItem;
-      setDaemon(true);
-    }
-
-    public void run()
-    {
-      try {
-        try {
-          synchronized (this) {
-            if (!abortThread) {
-              sourceStream = session.getDriveItemInputStream(driveItem);
-              threadStream = new XThreadInputStream(sourceStream);
-              this.notifyAll();
-            }
-          }
-
-          if (threadStream != null)
-          {
-            // Stuff the content until we are done
-            threadStream.stuffQueue();
-          }
-        } finally {
-          if (sourceStream != null) {
-            sourceStream.close();
-          }
-        }
-      } catch (Throwable e) {
-        exception = e;
-      }
-    }
-
-    public XThreadInputStream getSafeInputStream() throws InterruptedException
-    {
-      // Must wait until stream is created, or until we note an exception was thrown.
-      while (true)
-      {
-        synchronized (this)
-        {
-          if (exception != null) {
-            throw new IllegalStateException("Check for response before getting stream");
-          }
-          if (threadStream != null) {
-            return threadStream;
-          }
-          wait();
-        }
-      }
-    }
-
-    public void finishUp() throws InterruptedException, IOException
-    {
-      // This will be called during the finally
-      // block in the case where all is well (and
-      // the stream completed) and in the case where
-      // there were exceptions.
-      synchronized (this) {
-        if (threadStream != null) {
-          threadStream.abort();
-        }
-        abortThread = true;
-      }
-
-      join();
-
-      checkException(exception);
-    }
-
-    protected synchronized void checkException(Throwable exception) throws IOException
-    {
-      if (exception != null)
-      {
-        Throwable e = exception;
-        if (e instanceof IOException) {
-          throw (IOException)e;
-        } else if (e instanceof RuntimeException) {
-          throw (RuntimeException)e;
-        } else if (e instanceof Error) {
-          throw (Error)e;
-        } else {
-          throw new RuntimeException("Unhandled exception of type: "+e.getClass().getName(),e);
-        }
-      }
-    }
-  }
-
-  /**
-   * Given a job specification, return the current Office 365 sites that match.
-   * @param spec
-   * @return sites
-   */
-  private List<Site> currentSites(Specification spec) {
-    for (int i = 0; i < spec.getChildCount(); i++) {
-      SpecificationNode sn = spec.getChild(i);
-      if (sn.getType().equals(Office365Config.SITE_ATTR)) {
-        String siteNamePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
-        return session.getSites(siteNamePattern);
-      }
-    }
-    throw new IllegalArgumentException("Specification did not contain site pattern.");
   }
 }
