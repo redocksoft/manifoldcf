@@ -2,6 +2,8 @@ package org.apache.manifoldcf.crawler.connectors.office365;
 
 import com.microsoft.graph.core.ClientException;
 import com.microsoft.graph.http.GraphServiceException;
+import com.microsoft.graph.logger.ILogger;
+import com.microsoft.graph.logger.LoggerLevel;
 import com.microsoft.graph.models.extensions.Drive;
 import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.IGraphServiceClient;
@@ -11,6 +13,7 @@ import org.apache.manifoldcf.core.interfaces.Specification;
 import org.apache.manifoldcf.core.interfaces.SpecificationNode;
 import org.apache.manifoldcf.core.util.URLEncoder;
 import org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold.XThreadObjectBuffer;
+import org.apache.manifoldcf.crawler.system.Logging;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -29,6 +32,24 @@ public class Office365Session
       graphClient = GraphServiceClient
         .builder()
         .authenticationProvider(new Office365AuthenticationProvider(config))
+        // the graph sdk logging sucks, just disable it
+        .logger(new ILogger() {
+          @Override
+          public void setLoggingLevel(LoggerLevel loggerLevel) { /* Ignore */ }
+
+          @Override
+          public LoggerLevel getLoggingLevel() { return LoggerLevel.ERROR; }
+
+          @Override
+          public void logDebug(String s) {
+            if(Logging.connectors.isDebugEnabled()) { Logging.connectors.debug("O365: " + s); }
+          }
+
+          @Override
+          public void logError(String s, Throwable throwable) {
+            Logging.connectors.error("O365: " + s);
+          }
+        })
         .buildClient();
     }
   }
