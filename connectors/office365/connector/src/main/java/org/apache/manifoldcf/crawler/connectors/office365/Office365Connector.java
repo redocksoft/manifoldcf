@@ -25,7 +25,6 @@ import org.apache.manifoldcf.agents.interfaces.IOutputHistoryActivity;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.core.interfaces.*;
-import org.apache.manifoldcf.core.util.URLEncoder;
 import org.apache.manifoldcf.crawler.connectors.BaseRepositoryConnector;
 import org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold.ThreadedInputStreamConsumer;
 import org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold.ThreadedObjectSupplier;
@@ -35,6 +34,8 @@ import org.apache.manifoldcf.crawler.interfaces.ISeedingActivity;
 import org.apache.manifoldcf.crawler.system.Logging;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -302,8 +303,6 @@ public class Office365Connector extends BaseRepositoryConnector
       String version = driveItem.eTag;
       if (driveItem.size != null) fileSize = driveItem.size;
 
-      // There are only two allowed version states, either "null" which means it has been seeded by the newDeltaLink, or
-      // "processed" which confirms the file has been processed by the routine below so no need to redo it.
       if (!activities.checkDocumentNeedsReindexing(documentIdentifier, version)) {
         return;
       }
@@ -366,19 +365,32 @@ public class Office365Connector extends BaseRepositoryConnector
       }
 
       rd.setSourcePath(pathElem);
-      documentUri = pathElem.stream().map(p -> URLEncoder.encode(p)).collect(Collectors.joining("/", "/", "/")) + URLEncoder.encode(driveItem.name);
+
+      try {
+        // other connectors seem to use URI as a URL, and the documentations states the URI is "displayed in search engine
+        // "results as the link to the document", which is odd as URIs are not necessarily valid links/URLs
+        // here we'll provide an actual URI, i.e. the key information necessary to access the item via the MS Graph
+        // API: site, drive, and item ids, and we'll set the source URL as a separate property
+        documentUri = new URI(
+            "office365",
+            getConfigParameters().getOrganizationDomain(),
+            "/" + siteId + "/" + driveId + "/" + driveItem.id,
+            null
+        ).toString();
+      } catch (URISyntaxException e) {
+        throw new ManifoldCFException("Bad uri: "+e.getMessage(),e);
+      }
 
       // Set other source fields
       rd.addField("source", "Microsoft Office 365");
+      // the source URL is the web-accessible URL provided by the API -- note that driveItem.webUrl can and does
+      // change, e.g. when a document is updated (though its seems to forward to the same place), so this value cannot
+      // be used as the Manifold document URI
+      rd.addField("sourceUrl", driveItem.webUrl);
       rd.addField("office365.org", getConfigParameters().getOrganizationDomain());
       rd.addField("office365.siteId", siteId);
       rd.addField("office365.driveId", driveId);
       rd.addField("office365.id", driveItem.id);
-      // TODO here we are setting the URL directly as the URI, which isn't quite right, as URLs can change -- we
-      //  really should be storing something like the resource id, along with the office 365 instance/tenant/site/etc.,
-      //  and then use that to lookup the webUrl if we need it i.e. the URI should get us to a DriveItem, not to a web
-      //  resource
-      rd.addField("sourceUri", driveItem.webUrl);
 
       // TODO, METADATA, ACL
       // driveItem.permissions.getCurrentPage() etc.
