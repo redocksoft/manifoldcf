@@ -161,7 +161,7 @@ public class ReDockConnection {
     if (code == 200 || code == 201) {
       setResult("OK", Result.OK, null);
       return true;
-    } else if (code == 404 && method == "DELETE") {
+    } else if (code == 404 && "DELETE".equals(method)) {
       // The file was not found on the endpoint, perhaps because it was deleted by another mean.
       // Do not halt the job altogether, simply flag the file for audit purposes but carry-on job.
       setResult("FILE_NOT_FOUND", Result.NOT_FOUND_ON_ENDPOINT, "File does not exist on the endpoint.");

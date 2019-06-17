@@ -9,6 +9,10 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.HttpClient;
 
 import java.io.*;
+import java.net.InetAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -23,6 +27,7 @@ import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
 import org.apache.manifoldcf.core.common.Base64;
 import org.apache.manifoldcf.core.interfaces.ManifoldCFException;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
+import org.apache.manifoldcf.core.system.ManifoldCF;
 import org.apache.manifoldcf.core.util.URLEncoder;
 import org.apache.manifoldcf.crawler.system.Logging;
 
@@ -176,8 +181,25 @@ public class ReDockAction extends ReDockConnection {
         // Push origin URL
         if (documentURI != null)
         {
-          needComma = writeField(pw, needComma, "forwardedByUri",  new String[]{documentURI});
+          needComma = writeField(pw, needComma, "sourceUri",  new String[]{documentURI});
         }
+
+        String manifoldHostName = getHostName();
+
+        // Manifold URI
+        // the manifold URI is a pointer to the Manifold instance running, as best as we can understand it
+        String manifoldUri;
+        try {
+          manifoldUri = new URI(
+              "manifold",
+              manifoldHostName == null ? "" : manifoldHostName,
+              "/" + ManifoldCF.getProcessID(),
+              null
+          ).toString();
+        } catch (URISyntaxException e) {
+          throw new ManifoldCFException("Bad uri: "+e.getMessage(),e);
+        }
+        needComma = writeField(pw, needComma, "manifoldUri",  new String[]{manifoldUri});
 
         // Standard document fields
         final Date createdDate = document.getCreatedDate();
@@ -358,4 +380,19 @@ public class ReDockAction extends ReDockConnection {
     return needComma;
   }
 
+  private String getHostName() {
+    String hostName = null;
+    try {
+      hostName = InetAddress.getLocalHost().getCanonicalHostName();
+    } catch (UnknownHostException e) {
+      /* ignore */
+    }
+
+    if (hostName == null) {
+      String os = System.getProperty("os.name").toLowerCase();
+      hostName = System.getenv(os.contains("win") ? "COMPUTERNAME" : "HOSTNAME");
+    }
+
+    return hostName;
+  }
 }
