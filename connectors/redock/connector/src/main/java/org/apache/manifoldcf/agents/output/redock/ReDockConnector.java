@@ -243,6 +243,7 @@ public class ReDockConnector extends BaseOutputConnector {
   static
   {
     acceptableMimeTypes.add("application/msword"); // .doc, .dot
+    acceptableMimeTypes.add("application/pdf");
     acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.wordprocessingml.document"); // .docx
     acceptableMimeTypes.add("application/vnd.ms-word.document.macroenabled.12"); // .docm
     acceptableMimeTypes.add("application/vnd.ms-word.template.macroenabled.12"); // .dotm
@@ -250,8 +251,8 @@ public class ReDockConnector extends BaseOutputConnector {
     acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.presentation"); // .pptx
     acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.template"); // .potx
     acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.slideshow"); // ppsx
-    acceptableMimeTypes.add("application/vnd.application/vnd.ms-powerpoint.presentation.macroenabled.12"); //.pptm
-    acceptableMimeTypes.add("application/vnd.application/vnd.ms-powerpoint.addin.macroenabled.12"); // .ppam
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint.presentation.macroenabled.12"); //.pptm
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint.addin.macroenabled.12"); // .ppam
     acceptableMimeTypes.add("application/vnd.ms-powerpoint.slideshow.macroenabled.12"); // .ppsm
   }
 
