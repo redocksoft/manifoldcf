@@ -8,15 +8,16 @@ import com.microsoft.graph.models.extensions.Drive;
 import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.IGraphServiceClient;
 import com.microsoft.graph.models.extensions.Site;
+import com.microsoft.graph.options.QueryOption;
 import com.microsoft.graph.requests.extensions.*;
 import org.apache.manifoldcf.core.interfaces.Specification;
 import org.apache.manifoldcf.core.interfaces.SpecificationNode;
-import org.apache.manifoldcf.core.util.URLEncoder;
 import org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold.XThreadObjectBuffer;
 import org.apache.manifoldcf.crawler.system.Logging;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class Office365Session
@@ -27,31 +28,28 @@ public class Office365Session
   public Office365Session(Office365Config config)
   {
     this.config = config;
+    graphClient = GraphServiceClient
+      .builder()
+      .authenticationProvider(new Office365AuthenticationProvider(config))
+      // the graph sdk logging sucks, just disable it
+      .logger(new ILogger() {
+        @Override
+        public void setLoggingLevel(LoggerLevel loggerLevel) { /* Ignore */ }
 
-    if (graphClient == null) {
-      graphClient = GraphServiceClient
-        .builder()
-        .authenticationProvider(new Office365AuthenticationProvider(config))
-        // the graph sdk logging sucks, just disable it
-        .logger(new ILogger() {
-          @Override
-          public void setLoggingLevel(LoggerLevel loggerLevel) { /* Ignore */ }
+        @Override
+        public LoggerLevel getLoggingLevel() { return LoggerLevel.ERROR; }
 
-          @Override
-          public LoggerLevel getLoggingLevel() { return LoggerLevel.ERROR; }
+        @Override
+        public void logDebug(String s) {
+          if(Logging.connectors.isDebugEnabled()) { Logging.connectors.debug("O365: " + s); }
+        }
 
-          @Override
-          public void logDebug(String s) {
-            if(Logging.connectors.isDebugEnabled()) { Logging.connectors.debug("O365: " + s); }
-          }
-
-          @Override
-          public void logError(String s, Throwable throwable) {
-            Logging.connectors.error("O365: " + s);
-          }
-        })
-        .buildClient();
-    }
+        @Override
+        public void logError(String s, Throwable throwable) {
+          Logging.connectors.error("O365: " + s);
+        }
+      })
+      .buildClient();
   }
 
   public String check()
@@ -121,15 +119,11 @@ public class Office365Session
     if (siteNamePattern.matches("[a-zA-Z0-9\\s]*")) siteSearch = siteNamePattern;
     else siteSearch = "*";
 
-    String siteEnumerationQuery = String.format("%s/%s/sites?search=%s",
-      graphClient.getServiceRoot(), config.getOrganizationDomain(), URLEncoder.encode(siteSearch));
-
-    ISiteCollectionRequestBuilder reqBuilder = new SiteCollectionRequestBuilder(siteEnumerationQuery, graphClient, null);
-
-    while (reqBuilder != null) {
-      ISiteCollectionPage siteCollectionPage = reqBuilder.buildRequest().get();
-      sites.addAll(siteCollectionPage.getCurrentPage());
-      reqBuilder = siteCollectionPage.getNextPage();
+    ISiteCollectionRequest request = graphClient.sites().buildRequest(Collections.singletonList(new QueryOption("search", siteSearch)));
+    ISiteCollectionPage page = request.get();
+    while (page != null) {
+      sites.addAll(page.getCurrentPage());
+      page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
     }
 
     // Note that the search is made against display name so the patterns also should be consistent
@@ -168,10 +162,8 @@ public class Office365Session
   public Drive getDriveForSite(String siteId)
     throws ClientException
   {
-    Drive drive;
-    IDriveRequestBuilder reqBuilder = new DriveRequestBuilder(String.format("%s/sites/%s/drive", graphClient.getServiceRoot(), siteId), graphClient, null);
     try {
-      drive = reqBuilder.buildRequest().get();
+      return graphClient.sites(siteId).drive().buildRequest().get();
     } catch (GraphServiceException e) {
       if (e.getResponseCode() == 404 || e.getResponseCode() == 403) {
         return null;
@@ -179,7 +171,6 @@ public class Office365Session
         throw e;
       }
     }
-    return drive;
   }
 
   public DriveItem getDriveItem(String driveId, String itemId)
