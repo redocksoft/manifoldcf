@@ -131,7 +131,7 @@ public class ReDockConnection {
     }
   }
 
-  /** Call ElasticSearch.
+  /** Call reDock.
    *@return false if there was a "rejection".
    */
   protected boolean call(HttpRequestBase method)
