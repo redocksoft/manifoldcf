@@ -19,6 +19,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class Office365Session
 {
@@ -122,15 +123,14 @@ public class Office365Session
     ISiteCollectionRequest request = graphClient.sites().buildRequest(Collections.singletonList(new QueryOption("search", siteSearch)));
     ISiteCollectionPage page = request.get();
     while (page != null) {
-      sites.addAll(page.getCurrentPage());
+      sites.addAll(page.getCurrentPage().stream().filter(s -> {
+        // even though I don't see a way to make displayName null on the MS UI, there are some sites with displayName null, ignore these
+        if(s.displayName == null) return false;
+        if (siteSearch.equals("*")) return s.displayName.matches(siteNamePattern);
+        else return s.displayName.equals(siteSearch); // shouldn't this always be the case?
+      }).collect(Collectors.toList()));
       page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
     }
-
-    // Note that the search is made against display name so the patterns also should be consistent
-    sites.removeIf(s -> {
-      if (siteSearch.equals("*")) return !s.displayName.matches(siteNamePattern);
-      else return !s.displayName.equals(siteSearch);
-    });
 
     return sites;
   }
