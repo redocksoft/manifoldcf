@@ -208,11 +208,12 @@ public class Office365Connector extends BaseRepositoryConnector
 
     for (Site site : new Office365ThreadedBlock<>(() -> session.currentSites(spec)).runBlocking()) {
       Drive drive = new Office365ThreadedBlock<>(() -> session.getDriveForSite(site.id)).runBlocking();
-
-      // we create one seed "virtual" document for each site that needs to be traversed
-      // the format is SITESEED::siteid::driveid
-      Logging.connectors.info(String.format("O365: Seeding site %s on domain %s (id: %s, driveid: %s)", site.displayName, config.getOrganizationDomain(), site.id, drive.id));
-      activities.addSeedDocument(String.format("SITESEED::%s::%s", site.id, drive.id));
+      if (drive != null) {
+        // we create one seed "virtual" document for each site that needs to be traversed
+        // the format is SITESEED::siteid::driveid
+        Logging.connectors.info(String.format("O365: Seeding site %s on domain %s (id: %s, driveid: %s)", site.displayName, config.getOrganizationDomain(), site.id, drive.id));
+        activities.addSeedDocument(String.format("SITESEED::%s::%s", site.id, drive.id));
+      }
     }
 
     return null;
@@ -309,7 +310,7 @@ public class Office365Connector extends BaseRepositoryConnector
 
       // We shouldn't get a folder here
       if (driveItem.folder != null) {
-        throw new IllegalStateException("Did not expect a folder item.");
+        throw new IllegalStateException("Did not expect a folder item, site id [" + siteId + "], drive id [" + driveId + "], item id [" + driveItem.id + "].");
       }
 
       if (fileSize == 0L) {
@@ -327,6 +328,11 @@ public class Office365Connector extends BaseRepositoryConnector
         resultDesc = "Excluding document because of file length ('" + driveItem.size + "')";
         activities.noDocument(documentIdentifier, version);
         return;
+      }
+
+      // We shouldn't get null file here
+      if (driveItem.file == null) {
+        throw new IllegalStateException("Did not expect a null file attribute, site id [" + siteId + "], drive id [" + driveId + "], item id [" + driveItem.id + "].");
       }
 
       if (!activities.checkMimeTypeIndexable(driveItem.file.mimeType)) {
