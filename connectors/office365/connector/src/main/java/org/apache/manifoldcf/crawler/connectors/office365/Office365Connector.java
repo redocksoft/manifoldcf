@@ -299,6 +299,21 @@ public class Office365Connector extends BaseRepositoryConnector
         Logging.connectors.debug("O365: Processing document identifier '" + documentIdentifier + "' with name '" + driveItem.name + "'");
       }
 
+      try {
+        // other connectors seem to use URI as a URL, and the documentations states the URI is "displayed in search engine
+        // "results as the link to the document", which is odd as URIs are not necessarily valid links/URLs
+        // here we'll provide an actual URI, i.e. the key information necessary to access the item via the MS Graph
+        // API: site, drive, and item ids, and we'll set the source URL later as a separate property
+        documentUri = new URI(
+            "office365",
+            getConfigParameters().getOrganizationDomain(),
+            "/" + siteId + "/" + driveId + "/" + driveItem.id,
+            null
+        ).toString();
+      } catch (URISyntaxException e) {
+        throw new ManifoldCFException("Bad uri: "+e.getMessage(),e);
+      }
+
       // Version is the etag (any change in file content or metadata changes the version)
       // we also have driveItem.publication.versionId, perhaps that might be of some use?
       String version = driveItem.eTag;
@@ -311,6 +326,14 @@ public class Office365Connector extends BaseRepositoryConnector
       // We shouldn't get a folder here
       if (driveItem.folder != null) {
         throw new IllegalStateException("Did not expect a folder item, site id [" + siteId + "], drive id [" + driveId + "], item id [" + driveItem.id + "].");
+      }
+
+      // In some cases, the file attribute is null -- looks like these could be OneNote entries, among other things
+      if (driveItem.file == null) {
+        resultCode = IOutputHistoryActivity.EXCEPTION;
+        resultDesc = "Null file";
+        Logging.connectors.warn("O365: Did not expect a null file attribute, site id [" + siteId + "], drive id [" + driveId + "], item id [" + driveItem.id + "].");
+        return;
       }
 
       if (fileSize == 0L) {
@@ -328,11 +351,6 @@ public class Office365Connector extends BaseRepositoryConnector
         resultDesc = "Excluding document because of file length ('" + driveItem.size + "')";
         activities.noDocument(documentIdentifier, version);
         return;
-      }
-
-      // We shouldn't get null file here
-      if (driveItem.file == null) {
-        throw new IllegalStateException("Did not expect a null file attribute, site id [" + siteId + "], drive id [" + driveId + "], item id [" + driveItem.id + "].");
       }
 
       if (!activities.checkMimeTypeIndexable(driveItem.file.mimeType)) {
@@ -372,21 +390,6 @@ public class Office365Connector extends BaseRepositoryConnector
 
       rd.setSourcePath(pathElem);
 
-      try {
-        // other connectors seem to use URI as a URL, and the documentations states the URI is "displayed in search engine
-        // "results as the link to the document", which is odd as URIs are not necessarily valid links/URLs
-        // here we'll provide an actual URI, i.e. the key information necessary to access the item via the MS Graph
-        // API: site, drive, and item ids, and we'll set the source URL as a separate property
-        documentUri = new URI(
-            "office365",
-            getConfigParameters().getOrganizationDomain(),
-            "/" + siteId + "/" + driveId + "/" + driveItem.id,
-            null
-        ).toString();
-      } catch (URISyntaxException e) {
-        throw new ManifoldCFException("Bad uri: "+e.getMessage(),e);
-      }
-
       // Set other source fields
       rd.addField("source", "Microsoft Office 365");
       // the source URL is the web-accessible URL provided by the API -- note that driveItem.webUrl can and does
@@ -414,7 +417,7 @@ public class Office365Connector extends BaseRepositoryConnector
         resultCode = null;
       throw e;
     } finally {
-      if (resultCode != null)
+      if (resultCode != null && documentUri != null)
         activities.recordActivity(startTime, activity,
                 fileSize, documentUri, resultCode, resultDesc, null);
     }
