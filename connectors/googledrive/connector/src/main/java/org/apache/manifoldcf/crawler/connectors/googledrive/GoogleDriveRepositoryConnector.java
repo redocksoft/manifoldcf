@@ -1172,11 +1172,12 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
                 activities.noDocument(nodeId,version);
                 continue;
               }
-              
-              if (!activities.checkMimeTypeIndexable(mimeType))
+
+              String targetMimeType = getFixedMimeType(mimeType);
+              if (!activities.checkMimeTypeIndexable(targetMimeType))
               {
                 errorCode = activities.EXCLUDED_MIMETYPE;
-                errorDesc = "Excluding document because of mime type ("+mimeType+")";
+                errorDesc = "Excluding document because of mime type ("+mimeType+") mapped to ("+targetMimeType+")";
                 activities.noDocument(nodeId,version);
                 continue;
               }
@@ -1200,7 +1201,7 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
               }
               
               if (mimeType != null)
-                rd.setMimeType(getFixedMimeType(mimeType));
+                rd.setMimeType(targetMimeType);
               if (createdDate != null)
                 rd.setCreatedDate(createdDate);
               if (modifiedDate != null)
