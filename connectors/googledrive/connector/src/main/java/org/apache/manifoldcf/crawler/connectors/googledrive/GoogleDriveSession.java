@@ -137,7 +137,10 @@ public class GoogleDriveSession {
     Drive.Files.List request;
 
     request = drive.files().list().setQ(googleDriveQuery);
+    request.setCorpora("allDrives");
+    // deprecated, should be using setIncludeItemsFromAllDrives instead, note for update of v2 lib
     request.setIncludeTeamDriveItems(true);
+    // deprecated, should be using setSupportsAllDrives instead, note for update of v2 lib
     request.setSupportsTeamDrives(true);
 
     do {
