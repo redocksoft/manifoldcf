@@ -15,11 +15,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Iterator;
-import java.util.Locale;
-import java.util.TimeZone;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.message.BasicHeader;
@@ -349,19 +346,9 @@ public class ReDockAction extends ReDockConnection {
     return sb.toString();
   }
 
-  private final static SimpleDateFormat DATE_FORMATTER;
-
-  static
-  {
-    String ISO_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSSZ";
-    TimeZone UTC = TimeZone.getTimeZone("UTC");
-    DATE_FORMATTER = new SimpleDateFormat(ISO_FORMAT, Locale.ROOT);
-    DATE_FORMATTER.setTimeZone(UTC);
-  }
-
   protected static String formatAsString(final Date dateValue)
   {
-    return DATE_FORMATTER.format(dateValue);
+    return DateTimeFormatter.ISO_INSTANT.format(dateValue.toInstant());
   }
 
   protected static boolean writeField(PrintWriter pw, boolean needComma,
