@@ -134,6 +134,8 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
   protected String clientid = null;
   protected String clientsecret = null;
   protected String refreshtoken = null;
+  protected String credentialsString = null;
+  protected String impersonateUser = null;
 
   public GoogleDriveRepositoryConnector() {
     super();
@@ -184,6 +186,8 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     clientid = null;
     clientsecret = null;
     refreshtoken = null;
+    credentialsString = null;
+    impersonateUser = null;
   }
 
   /**
@@ -203,6 +207,8 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     clientid = params.getParameter(GoogleDriveConfig.CLIENT_ID_PARAM);
     clientsecret = params.getObfuscatedParameter(GoogleDriveConfig.CLIENT_SECRET_PARAM);
     refreshtoken = params.getParameter(GoogleDriveConfig.REFRESH_TOKEN_PARAM);
+    credentialsString = params.getParameter(GoogleDriveConfig.CREDENTIALS_STRING_PARAM);
+    impersonateUser = params.getParameter(GoogleDriveConfig.IMPERSONATE_USER_PARAM);
   }
 
   /**
@@ -286,27 +292,28 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     if (session == null) {
       // Check for parameter validity
 
-      if (StringUtils.isEmpty(clientid)) {
+      if (StringUtils.isEmpty(clientid) && StringUtils.isEmpty(credentialsString)) {
         throw new ManifoldCFException("Parameter " + GoogleDriveConfig.CLIENT_ID_PARAM
-            + " required but not set");
+            + " or parameter " + GoogleDriveConfig.CREDENTIALS_STRING_PARAM + " required but not set");
       }
 
       if (Logging.connectors.isDebugEnabled()) {
         Logging.connectors.debug("GOOGLEDRIVE: Clientid = '" + clientid + "'");
+        Logging.connectors.debug("GOOGLEDRIVE: credentialsString = '" + credentialsString + "'");
       }
 
-      if (StringUtils.isEmpty(clientsecret)) {
+      if (StringUtils.isNotEmpty(clientid) && StringUtils.isEmpty(clientsecret)) {
         throw new ManifoldCFException("Parameter " + GoogleDriveConfig.CLIENT_SECRET_PARAM
-            + " required but not set");
+            + " or parameter " + GoogleDriveConfig.CREDENTIALS_STRING_PARAM + " required but not set");
       }
 
       if (Logging.connectors.isDebugEnabled()) {
         Logging.connectors.debug("GOOGLEDRIVE: Clientsecret = '" + clientsecret + "'");
       }
 
-      if (StringUtils.isEmpty(refreshtoken)) {
+      if (StringUtils.isNotEmpty(clientid) && StringUtils.isEmpty(refreshtoken)) {
         throw new ManifoldCFException("Parameter " + GoogleDriveConfig.REFRESH_TOKEN_PARAM
-            + " required but not set");
+            + " or parameter " + GoogleDriveConfig.CREDENTIALS_STRING_PARAM + " required but not set");
       }
 
       if (Logging.connectors.isDebugEnabled()) {
@@ -366,7 +373,9 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     public void run() {
       try {
         // Create a session
-        session = new GoogleDriveSession(clientid, clientsecret, refreshtoken);
+        session = StringUtils.isNotEmpty(clientid) ?
+            new GoogleDriveSession(clientid, clientsecret, refreshtoken) :
+            new GoogleDriveSession(credentialsString, impersonateUser);
       } catch (Throwable e) {
         this.exception = e;
       }
@@ -433,6 +442,8 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     String clientid = parameters.getParameter(GoogleDriveConfig.CLIENT_ID_PARAM);
     String clientsecret = parameters.getObfuscatedParameter(GoogleDriveConfig.CLIENT_SECRET_PARAM);
     String refreshtoken = parameters.getParameter(GoogleDriveConfig.REFRESH_TOKEN_PARAM);
+    String credentialsString = parameters.getParameter(GoogleDriveConfig.CREDENTIALS_STRING_PARAM);
+    String impersonateUser = parameters.getParameter(GoogleDriveConfig.IMPERSONATE_USER_PARAM);
 
     if (clientid == null) {
       clientid = StringUtils.EMPTY;
@@ -448,9 +459,19 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
       refreshtoken = StringUtils.EMPTY;
     }
 
+    if (credentialsString == null) {
+      credentialsString = StringUtils.EMPTY;
+    }
+
+    if (impersonateUser == null) {
+      impersonateUser = StringUtils.EMPTY;
+    }
+
     newMap.put("CLIENTID", clientid);
     newMap.put("CLIENTSECRET", clientsecret);
     newMap.put("REFRESHTOKEN", refreshtoken);
+    newMap.put("CREDENTIALSSTRING", credentialsString);
+    newMap.put("IMPERSONATEUSER", impersonateUser);
   }
 
   /**
@@ -558,6 +579,16 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     String refreshtoken = variableContext.getParameter(GoogleDriveConfig.REFRESH_TOKEN_PARAM);
     if (refreshtoken != null) {
       parameters.setParameter(GoogleDriveConfig.REFRESH_TOKEN_PARAM, refreshtoken);
+    }
+
+    String credentialsString = variableContext.getParameter(GoogleDriveConfig.CREDENTIALS_STRING_PARAM);
+    if (credentialsString != null) {
+      parameters.setParameter(GoogleDriveConfig.CREDENTIALS_STRING_PARAM, credentialsString);
+    }
+
+    String impersonateUser = variableContext.getParameter(GoogleDriveConfig.IMPERSONATE_USER_PARAM);
+    if (impersonateUser != null) {
+      parameters.setParameter(GoogleDriveConfig.IMPERSONATE_USER_PARAM, impersonateUser);
     }
 
     return null;

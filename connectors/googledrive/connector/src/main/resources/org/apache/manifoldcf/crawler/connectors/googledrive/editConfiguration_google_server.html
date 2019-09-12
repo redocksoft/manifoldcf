@@ -53,6 +53,26 @@
       <input type="password" id="clientsecret" name="clientsecret" value="$Encoder.attributeEscape($CLIENTSECRET)" />
     </td>
   </tr>
+  <tr>
+    <td class="description">
+      <nobr>
+        $Encoder.bodyEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.CredentialsStringColon'))
+      </nobr>
+    </td>
+    <td class="value">
+      <input id="credentialsString" name="credentialsString" value="$Encoder.attributeEscape($CREDENTIALSSTRING)" />
+    </td>
+  </tr>
+  <tr>
+    <td class="description">
+      <nobr>
+        $Encoder.bodyEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.ImpersonateUserColon'))
+      </nobr>
+    </td>
+    <td class="value">
+      <input id="impersonateUser" name="impersonateUser" value="$Encoder.attributeEscape($IMPERSONATEUSER)" />
+    </td>
+  </tr>
 </table>
 
 #else
@@ -60,5 +80,7 @@
 <input type="hidden" name="clientid" value="$Encoder.attributeEscape($CLIENTID)" />
 <input type="hidden" name="clientsecret" value="$Encoder.attributeEscape($CLIENTSECRET)" />
 <input type="hidden" name="refreshtoken" value="$Encoder.attributeEscape($REFRESHTOKEN)" />
+<input type="hidden" name="credentialsString" value="$Encoder.attributeEscape($CREDENTIALSSTRING)" />
+<input type="hidden" name="impersonateUser" value="$Encoder.attributeEscape($IMPERSONATEUSER)" />
 
 #end

@@ -29,8 +29,10 @@ import com.google.api.client.http.GenericUrl;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.util.Charsets;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.Drive.Files.Get;
+import com.google.api.services.drive.DriveScopes;
 
 import java.util.Map;
 
@@ -40,10 +42,14 @@ import java.util.HashMap;
 import java.util.HashSet;
 import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
+import org.apache.commons.lang.StringUtils;
+
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -71,6 +77,34 @@ public class GoogleDriveSession {
 
     GoogleCredential credentials = new GoogleCredential.Builder().setClientSecrets(clientId, clientSecret)
         .setJsonFactory(JSON_FACTORY).setTransport(HTTP_TRANSPORT).build().setRefreshToken(refreshToken);
+
+    drive = new Drive.Builder(HTTP_TRANSPORT, JSON_FACTORY, credentials).setApplicationName(APPNAME).build();
+  }
+
+  /** Constructor.  Create a session using a credentials string (usually JSON) and a service account.
+  */
+  public GoogleDriveSession(String credentialsString, String impersonateUser)
+    throws IOException, GeneralSecurityException {
+    HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
+
+    // workaround https://github.com/googleapis/google-api-java-client/issues/1007, fixed in newer version
+    // use one credential to parse the JSON, and then build the real one
+    GoogleCredential credentialFromJson = GoogleCredential
+        .fromStream(new ByteArrayInputStream(credentialsString.getBytes(Charsets.UTF_8)), HTTP_TRANSPORT, JSON_FACTORY)
+        .createScoped(Collections.singletonList(DriveScopes.DRIVE_READONLY));
+
+    GoogleCredential.Builder credentialBuilder = new GoogleCredential.Builder()
+      .setTransport(credentialFromJson.getTransport())
+      .setJsonFactory(credentialFromJson.getJsonFactory())
+      .setServiceAccountId(credentialFromJson.getServiceAccountId())
+      .setServiceAccountPrivateKey(credentialFromJson.getServiceAccountPrivateKey())
+      .setServiceAccountScopes(credentialFromJson.getServiceAccountScopes());
+
+    if(StringUtils.isNotEmpty(impersonateUser)) {
+      credentialBuilder.setServiceAccountUser(impersonateUser);
+    }
+
+    GoogleCredential credentials = credentialBuilder.build();
 
     drive = new Drive.Builder(HTTP_TRANSPORT, JSON_FACTORY, credentials).setApplicationName(APPNAME).build();
   }
