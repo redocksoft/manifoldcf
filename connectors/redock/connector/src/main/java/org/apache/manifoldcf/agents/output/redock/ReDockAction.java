@@ -2,6 +2,7 @@ package org.apache.manifoldcf.agents.output.redock;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.HttpDelete;
@@ -177,6 +178,21 @@ public class ReDockAction extends ReDockConnection {
 
         // Push source name
         needComma = writeField(pw, needComma, "forwardedBy", new String[]{ReDockConnector.REDOCK_SOURCE_NAME});
+
+        //   check if the repository connector includes the content path
+        String primaryPath = StringUtils.EMPTY;
+        List<String> sourcePath = document.getSourcePath();
+        if (sourcePath != null && !sourcePath.isEmpty()) {
+          // having the full path in the first element of sourcePath seems standard, odd
+          primaryPath = sourcePath.get(0);
+        }
+
+        needComma = writeField(pw, needComma, "primaryPath",  new String[] {primaryPath});
+
+        // TODO what is this? the rootPath is probably where we should have O365 site info?
+        // set by FileRepo
+        // set by O365, rootPath is domain and site, sourcePath is everything I think (sourcePath should probably not include rootPath)
+        needComma = writeField(pw, needComma, "rootPath",  document.getRootPath().toArray(new String[0]));
 
         // Push origin URL
         if (documentURI != null)
