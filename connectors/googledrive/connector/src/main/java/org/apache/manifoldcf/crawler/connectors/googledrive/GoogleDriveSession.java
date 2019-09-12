@@ -43,6 +43,7 @@ import java.util.HashSet;
 import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import org.apache.commons.lang.StringUtils;
+import org.apache.manifoldcf.crawler.system.Logging;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -145,6 +146,10 @@ public class GoogleDriveSession {
 
     do {
       FileList files = request.execute();
+      if(files.getIncompleteSearch()) {
+        Logging.connectors.warn("GOOGLEDRIVE: Seed list returned incomplete search, alter seed query to return fewer results");
+      }
+
       for (File f : files.getItems()) {
         idBuffer.add(f.getId());
       }
