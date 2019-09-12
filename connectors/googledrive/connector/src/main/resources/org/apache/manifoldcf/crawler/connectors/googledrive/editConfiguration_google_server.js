@@ -25,21 +25,21 @@ function checkConfig()
 function checkConfigForSave()
 {
     
-  if (editconnection.refreshtoken.value == "")
+  if (editconnection.refreshtoken.value == "" && editconnection.credentialsString.value == "")
   {
     alert("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.RefreshTokenMustNotBeNull'))");
     SelectTab("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.Server'))");
     editconnection.jsonauth.focus();
     return false;
   }
-  if (editconnection.clientid.value == "")
+  if (editconnection.clientid.value == "" && editconnection.credentialsString.value == "")
   {
     alert("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.ClientMustNotBeNull'))");
     SelectTab("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.Server'))");
     editconnection.key.focus();
     return false;
   }
-  if (editconnection.clientsecret.value == "")
+  if (editconnection.clientsecret.value == "" && editconnection.credentialsString.value == "")
   {
     alert("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.ClientSecretMustNotBeNull'))");
     SelectTab("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.Server'))");
