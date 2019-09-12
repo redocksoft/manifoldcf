@@ -1158,8 +1158,6 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
                 documentURI = documentURI + "?" + CONTENT_PATH_PARAM + "=" + fullContentPath;
               }
 
-              System.out.println("documentURI: " + documentURI);
-
               if (!activities.checkLengthIndexable(fileLength)) {
                 errorCode = activities.EXCLUDED_LENGTH;
                 errorDesc = "Excluding document because of file length ('"+fileLength+"')";
