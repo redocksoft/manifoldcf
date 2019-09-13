@@ -1319,6 +1319,10 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
               errorDesc = "Document "+nodeId+" had no length; skipping";
             }
           }
+        } catch (ManifoldCFException e) {
+          if (e.getErrorCode() == ManifoldCFException.INTERRUPTED)
+            errorCode = null;
+          throw e;
         } finally {
           if (doLog && errorCode != null)
             activities.recordActivity(new Long(startTime), ACTIVITY_READ,
@@ -1361,58 +1365,48 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     }
   }
 
-  private String getDocumentContentPath(File googleFile, String documentURI) {
+  private String getDocumentContentPath(File googleFile, String documentURI) throws ServiceInterruption, ManifoldCFException {
     String fullContentPath = null;
-	try {
-      if (!isDir(googleFile)) {
-        if (googleFile.getParents() != null && !googleFile.getParents().isEmpty()) {
-          ParentReference parentRef = googleFile.getParents().get(0);
-          File parent;
+    if (!isDir(googleFile)) {
+      if (googleFile.getParents() != null && !googleFile.getParents().isEmpty()) {
+        ParentReference parentRef = googleFile.getParents().get(0);
+        File parent;
 
-          parent = getObject(parentRef.getId());
+        parent = getObject(parentRef.getId());
 
-          String path = getFilePath(parent);
-          String name;
-          String title = cleanupFileFolderName(googleFile.getTitle());
+        String path = getFilePath(parent);
+        String name;
+        String title = cleanupFileFolderName(googleFile.getTitle());
 
-          String extension = googleFile.getFileExtension();
+        String extension = googleFile.getFileExtension();
 
-          if (extension != null) {
-            if (title == null)
-              title = "";
+        if (extension != null) {
+          if (title == null)
+            title = "";
 
-            if (StringUtils.endsWithIgnoreCase(title, "." + extension)) {
-              name = title;
-            } else {
-              name = title + "." + extension;
-            }
+          if (StringUtils.endsWithIgnoreCase(title, "." + extension)) {
+            name = title;
           } else {
-            if (title == null)
-              title = "";
-            name = title + "." + getExtensionByMimeType(googleFile.getMimeType());
+            name = title + "." + extension;
           }
-
-          fullContentPath = path + SLASH + name;
+        } else {
+          if (title == null)
+            title = "";
+          name = title + "." + getExtensionByMimeType(googleFile.getMimeType());
         }
-      } else {
-        String path = getFilePath(googleFile);
-        String name = cleanupFileFolderName(googleFile.getTitle());
+
         fullContentPath = path + SLASH + name;
       }
-    } catch (ManifoldCFException e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
-    } catch (ServiceInterruption e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
-    } catch (IOException e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
-	}
+    } else {
+      String path = getFilePath(googleFile);
+      String name = cleanupFileFolderName(googleFile.getTitle());
+      fullContentPath = path + SLASH + name;
+    }
+
     return fullContentPath;
   }
 
-  private String getFilePath(File file) throws IOException, ManifoldCFException, ServiceInterruption {
+  private String getFilePath(File file) throws ManifoldCFException, ServiceInterruption {
     String folderPath = "";
     String fullFilePath = null;
 
@@ -1432,7 +1426,7 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
   }
 
   private List<String> getfoldersList(List<ParentReference> parentReferencesList, List<String> folderList)
-    throws IOException, ManifoldCFException, ServiceInterruption {
+    throws ManifoldCFException, ServiceInterruption {
     for (int i = 0; i < parentReferencesList.size(); i++) {
       String id = parentReferencesList.get(i).getId();
 
