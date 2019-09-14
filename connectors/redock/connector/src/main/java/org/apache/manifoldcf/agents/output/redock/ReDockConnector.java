@@ -44,8 +44,6 @@ import java.io.*;
 public class ReDockConnector extends BaseOutputConnector {
   // Activities we log
 
-  /** Source name */
-  public final static String REDOCK_SOURCE_NAME = "reDock ManifoldCF Output Connector";
   /** Ingestion activity */
   public final static String INGEST_ACTIVITY = "reDock ingest";
   /** Document removal activity */
