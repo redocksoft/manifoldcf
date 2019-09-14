@@ -19,6 +19,7 @@
 
 package org.apache.manifoldcf.crawler.connectors.googledrive;
 
+import com.google.api.services.drive.model.TeamDrive;
 import org.apache.manifoldcf.core.common.*;
 import org.apache.manifoldcf.connectorcommon.common.*;
 
@@ -186,6 +187,9 @@ public class GoogleDriveSession {
         && request.getPageToken().length() > 0);
   }
 
+  public TeamDrive getDrive(String driveId) throws IOException {
+    return drive.teamdrives().get(driveId).execute();
+  }
 
   /** Get a stream representing the specified document.
   */

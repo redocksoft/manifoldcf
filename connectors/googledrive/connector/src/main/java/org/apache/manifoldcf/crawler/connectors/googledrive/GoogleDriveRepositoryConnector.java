@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
+import com.google.api.services.drive.model.TeamDrive;
 import org.apache.commons.lang.StringUtils;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
@@ -987,6 +988,70 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     }
   }
   
+  protected TeamDrive getTeamDrive(String driveId)
+    throws ManifoldCFException, ServiceInterruption {
+    getSession();
+    GetTeamDriveThread t = new GetTeamDriveThread(driveId);
+    try {
+      t.start();
+      t.join();
+      Throwable thr = t.getException();
+      if (thr != null) {
+        if (thr instanceof IOException) {
+          throw (IOException) thr;
+        } else if (thr instanceof RuntimeException) {
+          throw (RuntimeException) thr;
+        } else {
+          throw (Error) thr;
+        }
+      }
+    } catch (InterruptedException e) {
+      t.interrupt();
+      throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
+        ManifoldCFException.INTERRUPTED);
+    } catch (java.net.SocketTimeoutException e) {
+      Logging.connectors.warn("GOOGLEDRIVE: Socket timeout getting object: " + e.getMessage(), e);
+      handleIOException(e);
+    } catch (InterruptedIOException e) {
+      t.interrupt();
+      throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
+        ManifoldCFException.INTERRUPTED);
+    } catch (IOException e) {
+      Logging.connectors.warn("GOOGLEDRIVE: Error getting object: " + e.getMessage(), e);
+      handleIOException(e);
+    }
+    return t.getResponse();
+  }
+
+  protected class GetTeamDriveThread extends Thread {
+
+    protected final String driveId;
+    protected Throwable exception = null;
+    protected TeamDrive response = null;
+
+    public GetTeamDriveThread(String driveId) {
+      super();
+      setDaemon(true);
+      this.driveId = driveId;
+    }
+
+    public void run() {
+      try {
+        response = session.getDrive(driveId);
+      } catch (Throwable e) {
+        this.exception = e;
+      }
+    }
+
+    public TeamDrive getResponse() {
+      return response;
+    }
+
+    public Throwable getException() {
+      return exception;
+    }
+  }
+
   /** Process a set of documents.
   * This is the method that should cause each document to be fetched, processed, and the results either added
   * to the queue of documents for the current job, and/or entered into the incremental ingestion manager.
@@ -1257,6 +1322,11 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
               // Get general document metadata
               for (Entry<String, Object> entry : googleFile.entrySet()) {
                 rd.addField(entry.getKey(), entry.getValue().toString());
+              }
+
+              if(googleFile.getTeamDriveId() != null) {
+                TeamDrive drive = getTeamDrive(googleFile.getTeamDriveId());
+                rd.addField("teamDriveName", drive.getName());
               }
 
               // Fire up the document reading thread
