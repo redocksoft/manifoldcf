@@ -176,20 +176,10 @@ public class ReDockAction extends ReDockConnection {
         // Push source name
         needComma = writeField(pw, needComma, "forwardedBy", new String[]{ReDockConnector.REDOCK_SOURCE_NAME});
 
-        //   check if the repository connector includes the content path
-        String primaryPath = StringUtils.EMPTY;
-        List<String> sourcePath = document.getSourcePath();
-        if (sourcePath != null && !sourcePath.isEmpty()) {
-          // having the full path in the first element of sourcePath seems standard, odd
-          primaryPath = sourcePath.get(0);
-        }
+        needComma = writeField(pw, needComma, "primaryPath",  document.getSourcePath().toArray(new String[0]));
 
-        needComma = writeField(pw, needComma, "primaryPath",  new String[] {primaryPath});
-
-        // TODO what is this? the rootPath is probably where we should have O365 site info?
-        // set by FileRepo
-        // set by O365, rootPath is domain and site, sourcePath is everything I think (sourcePath should probably not include rootPath)
-        needComma = writeField(pw, needComma, "rootPath",  document.getRootPath().toArray(new String[0]));
+        // set by FileRepo and O365 repo
+        needComma = writeField(pw, needComma, "rootPath", document.getRootPath().toArray(new String[0]));
 
         // Push origin URL
         if (documentURI != null)
