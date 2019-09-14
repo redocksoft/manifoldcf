@@ -2,7 +2,6 @@ package org.apache.manifoldcf.agents.output.redock;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang.StringUtils;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.HttpDelete;
@@ -172,9 +171,6 @@ public class ReDockAction extends ReDockConnection {
             needComma = writeField(pw, needComma, fieldName, fieldValues);
           }
         }
-
-        // Push source name
-        needComma = writeField(pw, needComma, "forwardedBy", new String[]{ReDockConnector.REDOCK_SOURCE_NAME});
 
         needComma = writeField(pw, needComma, "primaryPath",  document.getSourcePath().toArray(new String[0]));
 
