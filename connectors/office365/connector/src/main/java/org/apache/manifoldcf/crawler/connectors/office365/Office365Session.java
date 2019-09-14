@@ -109,6 +109,15 @@ public class Office365Session
   }
 
   /**
+   * Given a site id, return the Site.
+   * @param id
+   * @return site
+   */
+  public Site siteById(String id) {
+    return graphClient.sites(id).buildRequest().get();
+  }
+
+  /**
    * Retrieve all the sites id that match the site name pattern.
    */
   public List<Site> getSites(String siteNamePattern)
