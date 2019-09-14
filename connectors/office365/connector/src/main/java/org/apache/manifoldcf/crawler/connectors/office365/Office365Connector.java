@@ -17,6 +17,9 @@
 
 package org.apache.manifoldcf.crawler.connectors.office365;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.gson.JsonElement;
 import com.microsoft.graph.models.extensions.Drive;
 import com.microsoft.graph.models.extensions.DriveItem;
 import com.microsoft.graph.models.extensions.Site;
@@ -37,8 +40,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -78,9 +81,18 @@ public class Office365Connector extends BaseRepositoryConnector
   private static final String EDIT_SPEC_HEADER_FORWARD = "editSpecification.js.html";
   private static final String EDIT_SPEC_FORWARD = "editSpecification.html";
 
-  // Regex
-  private static final Pattern DOMAIN_PATTERN = Pattern.compile("https://(.*?)/");
-  private static final Pattern SITE_PATTERN = Pattern.compile("sites/(.*?)/");
+  private static final String[] SITE_DATA_NAMES = {
+          "siteId",
+          "siteName",
+          "siteDisplayName",
+          "siteUrl"
+  };
+
+  private Cache<String, Site> sitesCache = CacheBuilder.newBuilder()
+          .maximumSize(1000)
+          .expireAfterWrite(10, TimeUnit.MINUTES)
+          .build();
+
 
   public Office365Connector()
   {
@@ -153,6 +165,7 @@ public class Office365Connector extends BaseRepositoryConnector
     throws ManifoldCFException
   {
     super.disconnect();
+    sitesCache.invalidateAll();
     if (isConnected()) {
       session.close();
       session = null;
@@ -237,7 +250,7 @@ public class Office365Connector extends BaseRepositoryConnector
         for (DriveItem item : new Office365ThreadedBlock<>(() -> session.getDriveItems(driveId)).runBlocking()) {
           String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, item.id);
           activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CONTAINED,
-              new String[]{"Site"}, new String[][]{new String[]{siteId}});
+                  SITE_DATA_NAMES, siteData(siteById(siteId)));
         }
       } else if (documentIdentifier.startsWith("DOC::")) {
         String itemId = idComponents[3];
@@ -255,10 +268,9 @@ public class Office365Connector extends BaseRepositoryConnector
               session.getDriveItemsUnderItem(driveId, item.id, b)
           );
           driveItemSupplier.onFetch(childItem -> {
-            // TODO add other carry-down data from the site, and the parent folder?
             String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, childItem.id);
             activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CHILD,
-                new String[] {"Site"}, new String[][]{new String[] {siteId}});
+                    SITE_DATA_NAMES, siteData(siteById(siteId)));
           });
         } else {
           // file
@@ -303,7 +315,9 @@ public class Office365Connector extends BaseRepositoryConnector
         // other connectors seem to use URI as a URL, and the documentations states the URI is "displayed in search engine
         // "results as the link to the document", which is odd as URIs are not necessarily valid links/URLs
         // here we'll provide an actual URI, i.e. the key information necessary to access the item via the MS Graph
-        // API: site, drive, and item ids, and we'll set the source URL later as a separate property
+        // API: site, drive, and item ids, and we'll set the web URL later as a separate property
+        // Note that driveItem.webUrl can and does change, e.g. when a document is updated (though its seems to
+        // forward to the same place), so this value cannot be used as the Manifold document URI anyway
         documentUri = new URI(
             "office365",
             getConfigParameters().getOrganizationDomain(),
@@ -343,9 +357,6 @@ public class Office365Connector extends BaseRepositoryConnector
         return;
       }
 
-      // URI tokens
-      List<String> pathElem = new ArrayList<>();
-
       if (!activities.checkLengthIndexable(driveItem.size)) {
         resultCode = activities.EXCLUDED_LENGTH;
         resultDesc = "Excluding document because of file length ('" + driveItem.size + "')";
@@ -376,30 +387,39 @@ public class Office365Connector extends BaseRepositoryConnector
       rd.setMimeType(driveItem.file.mimeType);
 
       // Harvest human readable paths to set in the rootPath (domain & site) and sourcePath (folder structure)
-      Matcher mDomain = DOMAIN_PATTERN.matcher(driveItem.webUrl);
-      Matcher mSite = SITE_PATTERN.matcher(driveItem.webUrl);
-      if (mDomain.find()) pathElem.add(mDomain.group(1));
-      if (mSite.find()) pathElem.add(mSite.group(1));
+      List<String> rootPath = new ArrayList<>();
+      rootPath.add(getConfigParameters().getOrganizationDomain());
 
-      rd.setRootPath(pathElem);
-
-      String[] pathTokens = driveItem.parentReference.path.split(":");
-      if (pathTokens.length > 1) {
-        pathElem.addAll(Arrays.asList(StringUtils.strip(pathTokens[1], "/").split("/")));
+      String[] siteDisplayName = activities.retrieveParentData(documentIdentifier, "siteDisplayName");
+      if(siteDisplayName != null) {
+        rootPath.addAll(Arrays.asList(siteDisplayName));
       }
 
-      rd.setSourcePath(pathElem);
+      rd.setRootPath(rootPath);
+
+      List<String> sourcePath = new ArrayList<>();
+      String[] pathTokens = driveItem.parentReference.path.split(":");
+      if (pathTokens.length > 1) {
+        sourcePath.addAll(Arrays.asList(StringUtils.strip(pathTokens[1], "/").split("/")));
+      }
+
+      rd.setSourcePath(sourcePath);
+
+      // carry-down data
+      for (String dataName : SITE_DATA_NAMES) {
+        String[] dataValue = activities.retrieveParentData(documentIdentifier, dataName);
+        rd.addField(dataName, dataValue);
+      }
 
       // Set other source fields
       rd.addField("source", "Microsoft Office 365");
-      // the source URL is the web-accessible URL provided by the API -- note that driveItem.webUrl can and does
-      // change, e.g. when a document is updated (though its seems to forward to the same place), so this value cannot
-      // be used as the Manifold document URI
-      rd.addField("sourceUrl", driveItem.webUrl);
-      rd.addField("office365.org", getConfigParameters().getOrganizationDomain());
-      rd.addField("office365.siteId", siteId);
-      rd.addField("office365.driveId", driveId);
-      rd.addField("office365.id", driveItem.id);
+      rd.addField("org", getConfigParameters().getOrganizationDomain());
+      rd.addField("driveId", driveId);
+
+      for (Map.Entry<String, JsonElement> entry : driveItem.getRawObject().entrySet()) {
+        JsonElement value = entry.getValue();
+        rd.addField(entry.getKey(), value.isJsonNull() ? null : value.isJsonPrimitive() ? value.getAsString() : value.toString());
+      }
 
       // TODO, METADATA, ACL
       // driveItem.permissions.getCurrentPage() etc.
@@ -609,5 +629,30 @@ public class Office365Connector extends BaseRepositoryConnector
       rval[i++] = (String) iter.next();
     }
     return rval;
+  }
+
+  private Site siteById(String id) throws ManifoldCFException, ServiceInterruption {
+    try {
+      return sitesCache.get(id, () -> new Office365ThreadedBlock<>(() -> session.siteById(id)).runBlocking());
+    } catch (ExecutionException e) {
+      if(e.getCause() instanceof ManifoldCFException) {
+        throw (ManifoldCFException)e.getCause();
+      } else if(e.getCause() instanceof ServiceInterruption) {
+        throw (ServiceInterruption)e.getCause();
+      } else if(e.getCause() instanceof RuntimeException) {
+        throw (RuntimeException) e.getCause();
+      } else {
+        throw new ManifoldCFException("Unable to obtain site by id: "+e.getMessage(), e);
+      }
+    }
+  }
+
+  private String[][] siteData(Site site) {
+    return new String[][]{
+            new String[]{site.id},
+            new String[]{site.name},
+            new String[]{site.displayName},
+            new String[]{site.webUrl}
+    };
   }
 }
