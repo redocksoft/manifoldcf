@@ -191,8 +191,9 @@
     <property name="rat_bootstrap_url1" value="http://repo1.maven.org/maven2"/>
     <!-- you might need to tweak this from china so it works -->
     <property name="rat_bootstrap_url2" value="http://uk.maven.org/maven2"/>
-    <property name="microsoft.graph.version" value="1.1.0"/>
-  
+    <property name="microsoft.graph.version" value="1.6.0"/>
+    <property name="microsoft.graph.core.version" value="1.0.0"/>
+
   
     <macrodef name="rat-download">
       <attribute name="src"/>
@@ -1661,14 +1662,14 @@ Use Apache Forrest version forrest-0.9-dev or higher.
     <target name="download-okhttp">
         <antcall target="download-via-maven">
             <param name="project-path" value="com/squareup/okhttp3"/>
-            <param name="artifact-version" value="3.10.0"/>
+            <param name="artifact-version" value="3.12.1"/>
             <param name="target" value="lib"/>
             <param name="artifact-name" value="okhttp"/>
             <param name="artifact-type" value="jar"/>
         </antcall>
         <antcall target="download-via-maven">
             <param name="project-path" value="com/squareup/okio"/>
-            <param name="artifact-version" value="1.14.1"/>
+            <param name="artifact-version" value="1.15.0"/>
             <param name="target" value="lib"/>
             <param name="artifact-name" value="okio"/>
             <param name="artifact-type" value="jar"/>
@@ -2964,6 +2965,12 @@ Use Apache Forrest version forrest-0.9-dev or higher.
             <param name="project-path" value="com/microsoft/graph"/>
             <param name="artifact-version" value="${microsoft.graph.version}"/>
             <param name="artifact-name" value="microsoft-graph"/>
+            <param name="artifact-type" value="jar"/>
+        </antcall>
+        <antcall target="download-via-maven"><param name="target" value="lib"/>
+            <param name="project-path" value="com/microsoft/graph"/>
+            <param name="artifact-version" value="${microsoft.graph.core.version}"/>
+            <param name="artifact-name" value="microsoft-graph-core"/>
             <param name="artifact-type" value="jar"/>
         </antcall>
     </target>
