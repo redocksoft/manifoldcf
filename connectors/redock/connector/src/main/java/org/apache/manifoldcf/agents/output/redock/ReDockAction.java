@@ -45,7 +45,7 @@ public class ReDockAction extends ReDockConnection {
       return;
     }
     setResult("JSONERROR", Result.ERROR, error);
-    Logging.connectors.warn("reDock: Commit failed: " + getResponse());
+    Logging.connectors.warn("reDock: GET " + url.toString() + action + " failed: " + getResponse());
   }
 
   public void executePUT(String documentURI, RepositoryDocument document)
@@ -60,7 +60,7 @@ public class ReDockAction extends ReDockConnection {
     }
 
     setResult("JSONERROR", Result.ERROR, error);
-    Logging.connectors.warn("reDock: Commit failed: " + getResponse());
+    Logging.connectors.warn("reDock: PUT " + url.toString() + " failed: " + getResult() + " " + getResponse());
   }
 
   public void executeDELETE(String documentURI)
@@ -77,7 +77,7 @@ public class ReDockAction extends ReDockConnection {
     }
 
     setResult("JSONERROR", Result.ERROR, error);
-    Logging.connectors.warn("reDock: Delete failed: " + getResponse());
+    Logging.connectors.warn("reDock: DELETE " + url.toString() + uri + " failed: " + getResponse());
   }
 
   public JsonNode getResponseJsonNode()
