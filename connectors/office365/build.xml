@@ -34,6 +34,8 @@
         <path refid="mcf-connector-build.connector-classpath"/>
         <fileset dir="../../lib">
             <include name="microsoft-graph*.jar"/>
+            <include name="okhttp*.jar"/>
+            <include name="okio*.jar"/>
         </fileset>
     </path>
 
@@ -42,6 +44,8 @@
         <copy todir="dist/lib">
             <fileset dir="../../lib">
                 <include name="microsoft-graph*.jar"/>
+                <include name="okhttp*.jar"/>
+                <include name="okio*.jar"/>
             </fileset>
         </copy>
     </target>
