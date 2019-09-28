@@ -17,11 +17,13 @@
 
 package org.apache.manifoldcf.crawler.connectors.office365;
 
+import com.microsoft.graph.core.ClientException;
 import com.microsoft.graph.http.GraphServiceException;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.core.interfaces.ManifoldCFException;
 import org.apache.manifoldcf.crawler.system.Logging;
 
+import java.io.IOException;
 import java.io.InterruptedIOException;
 
 public class Office365ErrorHandling {
@@ -32,12 +34,23 @@ public class Office365ErrorHandling {
     } else return e instanceof InterruptedIOException;
   }
 
+  public static boolean isRetryableConnectionFailure(Exception e) {
+    Throwable cause = e;
+    if (e instanceof ClientException) {
+      cause = e.getCause();
+    }
+    return cause instanceof IOException;
+  }
+
   public static void handleOtherException(Exception e) throws ManifoldCFException, ServiceInterruption {
     String errorMessage = String.format("O365: exception: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
     Logging.connectors.debug(errorMessage, e);
     if (isThrottle(e)) {
       long currentTime = System.currentTimeMillis();
       throw new ServiceInterruption(errorMessage, e, currentTime + 300000L, currentTime + 3 * 60 * 60000L, -1, false);
+    } else if(isRetryableConnectionFailure(e)) {
+      long currentTime = System.currentTimeMillis();
+      throw new ServiceInterruption(errorMessage, e, currentTime + 1000L, -1L, 5, true);
     }
   }
 }
