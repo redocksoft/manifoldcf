@@ -211,15 +211,14 @@ public class ReDockConnection {
     InputStream is = entity.getContent();
     if (is != null) {
       try {
-        Charset charSet;
+        Charset charSet = StandardCharsets.UTF_8;
         try {
           ContentType ct = ContentType.get(entity);
-          if (ct == null)
-            charSet = StandardCharsets.UTF_8;
-          else
+          if (ct != null && ct.getCharset() != null) {
             charSet = ct.getCharset();
+          }
         } catch (ParseException e) {
-          charSet = StandardCharsets.UTF_8;
+          // ignore
         }
         char[] buffer = new char[65536];
         Reader r = new InputStreamReader(is, charSet);
