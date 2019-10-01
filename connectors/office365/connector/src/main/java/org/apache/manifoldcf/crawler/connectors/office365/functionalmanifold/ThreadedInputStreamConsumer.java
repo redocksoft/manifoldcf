@@ -61,6 +61,9 @@ public class ThreadedInputStreamConsumer extends BaseIoThread {
         synchronized (this) {
           if (!abortThread) {
             sourceStream = sourceStreamSupplier == null ? null : sourceStreamSupplier.get();
+            if (sourceStream == null) {
+              throw new IllegalStateException("No content available.");
+            }
             threadStream = new XThreadInputStream(sourceStream);
             this.notifyAll();
           }

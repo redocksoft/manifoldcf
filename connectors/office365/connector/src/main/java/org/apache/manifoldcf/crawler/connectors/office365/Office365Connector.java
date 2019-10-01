@@ -257,7 +257,7 @@ public class Office365Connector extends BaseRepositoryConnector
 
         DriveItem item = new Office365ThreadedBlock<>(() -> session.getDriveItem(driveId, itemId)).runBlocking();
 
-        if(item.folder != null) {
+        if(item != null && item.folder != null) {
           // folder
           if (Logging.connectors.isDebugEnabled()) {
             Logging.connectors.debug(String.format("O365: item %s is a folder", item.id));
@@ -273,9 +273,13 @@ public class Office365Connector extends BaseRepositoryConnector
                     SITE_DATA_NAMES, siteData(siteById(siteId)));
           });
         } else {
-          // file
+          // file, could be null
           if (Logging.connectors.isDebugEnabled()) {
-            Logging.connectors.debug(String.format("O365: item %s is a file", item.id));
+            if(item == null) {
+              Logging.connectors.debug(String.format("O365: item %s on drive %s was null, perhaps it was deleted after seeding or we don't have access?", itemId, driveId));
+            } else {
+              Logging.connectors.debug(String.format("O365: item %s on drive %s is a file", item.id, driveId));
+            }
           }
 
           processDriveDocument(documentIdentifier, siteId, driveId, item, activities);
