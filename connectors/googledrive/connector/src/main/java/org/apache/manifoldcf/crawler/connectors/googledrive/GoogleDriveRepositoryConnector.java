@@ -1463,35 +1463,34 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
   private String getDocumentContentPath(File googleFile, String documentURI) throws ServiceInterruption, ManifoldCFException {
     String fullContentPath = null;
     if (!isDir(googleFile)) {
+      File parent = null;
       if (googleFile.getParents() != null && !googleFile.getParents().isEmpty()) {
         ParentReference parentRef = googleFile.getParents().get(0);
-        File parent;
-
         parent = getObject(parentRef.getId());
-
-        String path = parent == null ? "" : getFilePath(parent);
-        String name;
-        String title = cleanupFileFolderName(googleFile.getTitle());
-
-        String extension = googleFile.getFileExtension();
-
-        if (extension != null) {
-          if (title == null)
-            title = "";
-
-          if (StringUtils.endsWithIgnoreCase(title, "." + extension)) {
-            name = title;
-          } else {
-            name = title + "." + extension;
-          }
-        } else {
-          if (title == null)
-            title = "";
-          name = title + "." + getExtensionByMimeType(googleFile.getMimeType());
-        }
-
-        fullContentPath = path + SLASH + name;
       }
+
+      String path = parent == null ? "" : getFilePath(parent);
+      String name;
+      String title = cleanupFileFolderName(googleFile.getTitle());
+
+      String extension = googleFile.getFileExtension();
+
+      if (extension != null) {
+        if (title == null)
+          title = "";
+
+        if (StringUtils.endsWithIgnoreCase(title, "." + extension)) {
+          name = title;
+        } else {
+          name = title + "." + extension;
+        }
+      } else {
+        if (title == null)
+          title = "";
+        name = title + "." + getExtensionByMimeType(googleFile.getMimeType());
+      }
+
+      fullContentPath = path + SLASH + name;
     } else {
       String path = getFilePath(googleFile);
       String name = cleanupFileFolderName(googleFile.getTitle());
