@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.services.drive.model.TeamDrive;
 import org.apache.commons.lang.StringUtils;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
@@ -974,6 +975,13 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     public void run() {
       try {
         response = session.getObject(nodeId);
+      } catch (GoogleJsonResponseException e) {
+        if(e.getDetails().getCode() == 404) {
+          // its best to return null if the object is not found
+          response = null;
+        } else {
+          this.exception = e;
+        }
       } catch (Throwable e) {
         this.exception = e;
       }
@@ -1038,6 +1046,14 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     public void run() {
       try {
         response = session.getDrive(driveId);
+      } catch (GoogleJsonResponseException e) {
+        if(e.getDetails().getCode() == 404) {
+          // this can happen, for example, if we have access to a file but not to the drive its on -- in this case
+          // its best to just return null
+          response = null;
+        } else {
+          this.exception = e;
+        }
       } catch (Throwable e) {
         this.exception = e;
       }
@@ -1326,7 +1342,9 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
 
               if(googleFile.getTeamDriveId() != null) {
                 TeamDrive drive = getTeamDrive(googleFile.getTeamDriveId());
-                rd.addField("teamDriveName", drive.getName());
+                if (drive != null) {
+                  rd.addField("teamDriveName", drive.getName());
+                }
               }
 
               // Fire up the document reading thread
@@ -1444,7 +1462,7 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
 
         parent = getObject(parentRef.getId());
 
-        String path = getFilePath(parent);
+        String path = parent == null ? "" : getFilePath(parent);
         String name;
         String title = cleanupFileFolderName(googleFile.getTitle());
 
