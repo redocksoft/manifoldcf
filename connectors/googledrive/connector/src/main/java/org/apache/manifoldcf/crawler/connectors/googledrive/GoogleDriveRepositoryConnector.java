@@ -1262,6 +1262,13 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
               }
 
               String fullContentPath = getDocumentContentPath(googleFile, documentURI);
+
+              if ("/My Drive/Getting started.".equals(fullContentPath)) {
+                errorCode = activities.EXCLUDED_CONTENT;
+                errorDesc = "Excluding Getting Started. document";
+                activities.noDocument(nodeId,version);
+                continue;
+              }
               
               // Append the new parameters in the query string
               if (StringUtils.contains(documentURI, '?')) {
