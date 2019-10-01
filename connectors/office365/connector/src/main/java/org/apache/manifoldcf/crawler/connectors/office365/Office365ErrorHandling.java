@@ -18,6 +18,7 @@
 package org.apache.manifoldcf.crawler.connectors.office365;
 
 import com.microsoft.graph.core.ClientException;
+import com.microsoft.graph.http.GraphFatalServiceException;
 import com.microsoft.graph.http.GraphServiceException;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.core.interfaces.ManifoldCFException;
@@ -35,6 +36,12 @@ public class Office365ErrorHandling {
   }
 
   public static boolean isRetryableConnectionFailure(Exception e) {
+    if (e instanceof GraphFatalServiceException) {
+      // sometimes the graph API throws a 500 Internal Server Error for no particular reason, consider it a retryable error
+      return true;
+    }
+
+    // graph API often throws various connection resets or broken pipe socket exceptions, these IOException's are retryable errors
     Throwable cause = e;
     if (e instanceof ClientException) {
       cause = e.getCause();
