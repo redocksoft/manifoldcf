@@ -35,6 +35,7 @@ import org.apache.http.protocol.HttpRequestExecutor;
 import org.apache.manifoldcf.agents.output.BaseOutputConnector;
 import org.apache.manifoldcf.core.interfaces.*;
 import org.apache.manifoldcf.agents.interfaces.*;
+import org.apache.manifoldcf.crawler.system.Logging;
 
 import java.util.*;
 import java.io.*;
@@ -219,21 +220,20 @@ public class ReDockConnector extends BaseOutputConnector {
     ReDockConfig config = getConfigParameters(null);
     ReDockAction reDock = new ReDockAction(client, config);
 
-    try
-    {
+    try {
       reDock.executePUT(documentURI, document);
-
-      if (reDock.getResult() != ReDockConnection.Result.OK) {
-        return DOCUMENTSTATUS_REJECTED;
-      }
-
-      activities.recordActivity(null, INGEST_ACTIVITY, document.getBinaryLength(), documentURI, "OK", reDock.getResultDescription());
-    }
-    catch(Exception e)
-    {
+    } catch(Exception e) {
       activities.recordActivity(null, INGEST_ACTIVITY, document.getBinaryLength(), documentURI, "EXCEPTION", e.toString());
+      Logging.connectors.info("reDock: Exception while uploading", e);
+      throw new ManifoldCFException(e.getMessage(), e);
     }
 
+    if (reDock.getResult() != ReDockConnection.Result.OK) {
+      activities.recordActivity(null, INGEST_ACTIVITY, document.getBinaryLength(), documentURI, reDock.getResult().name(), "reDock returned code=" + reDock.getResultCode() + " description=" + reDock.getResultDescription());
+      return DOCUMENTSTATUS_REJECTED;
+    }
+
+    activities.recordActivity(null, INGEST_ACTIVITY, document.getBinaryLength(), documentURI, "OK", reDock.getResultDescription());
     return DOCUMENTSTATUS_ACCEPTED;
   }
 
@@ -349,7 +349,7 @@ public class ReDockConnector extends BaseOutputConnector {
       ReDockConfig config = this.getConfigParameters(parameters);
       outputResource(EDIT_CONFIG_FORWARD_SERVER, out, locale, config, tabName, null, null);
     } catch (Exception e) {
-      e.printStackTrace();
+      Logging.connectors.warn("reDock: Output configuration body failed", e);
     }
   }
 
