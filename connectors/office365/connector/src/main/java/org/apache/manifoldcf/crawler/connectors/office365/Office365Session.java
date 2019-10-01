@@ -185,7 +185,15 @@ public class Office365Session
   public DriveItem getDriveItem(String driveId, String itemId)
     throws ClientException
   {
-    return graphClient.drives(driveId).items(itemId).buildRequest().get();
+    try {
+      return graphClient.drives(driveId).items(itemId).buildRequest().get();
+    } catch (GraphServiceException e) {
+      if (e.getResponseCode() == 404 || e.getResponseCode() == 403) {
+        return null;
+      } else {
+        throw e;
+      }
+    }
   }
 
   /** Get a stream representing the specified document.
@@ -193,12 +201,20 @@ public class Office365Session
   public InputStream getDriveItemInputStream(DriveItem driveItem)
     throws ClientException
   {
-     return graphClient
-       .drives(driveItem.parentReference.driveId)
-       .items(driveItem.id)
-       .content()
-       .buildRequest()
-       .get();
+    try {
+      return graphClient
+        .drives(driveItem.parentReference.driveId)
+        .items(driveItem.id)
+        .content()
+        .buildRequest()
+        .get();
+    } catch (GraphServiceException e) {
+      if (e.getResponseCode() == 404 || e.getResponseCode() == 403) {
+        return null;
+      } else {
+        throw e;
+      }
+    }
   }
 
   public void close()
