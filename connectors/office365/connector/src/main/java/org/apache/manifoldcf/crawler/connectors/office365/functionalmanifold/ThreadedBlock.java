@@ -78,10 +78,10 @@ public class ThreadedBlock<T> extends BaseIoThread {
       throw new ManifoldCFException("Interrupted: " + e.getMessage(), e,
           ManifoldCFException.INTERRUPTED);
     } catch (IOException e) {
-      Logging.connectors.warn("Error on I/O block: " + e.getMessage(), e);
+      Logging.connectors.warn("Error in I/O block: " + e.getMessage(), e);
       handleIOException(e);
     } catch (Exception e) {
-      Logging.connectors.warn("Error on I/O block: " + e.getMessage(), e);
+      Logging.connectors.warn("Error in I/O block: " + e.getMessage(), e);
       handleOtherException(e);
     }
     return response;
