@@ -225,7 +225,8 @@ public class ReDockConnector extends BaseOutputConnector {
     } catch(Exception e) {
       activities.recordActivity(null, INGEST_ACTIVITY, document.getBinaryLength(), documentURI, "EXCEPTION", e.toString());
       Logging.connectors.info("reDock: Exception while uploading", e);
-      throw new ManifoldCFException(e.getMessage(), e);
+      if(e instanceof ServiceInterruption || e instanceof ManifoldCFException) throw e;
+      else throw new ManifoldCFException(e.getMessage(), e);
     }
 
     if (reDock.getResult() != ReDockConnection.Result.OK) {
