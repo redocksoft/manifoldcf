@@ -1261,6 +1261,13 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
                   break;
               }
 
+              if (documentURI == null) {
+                errorCode = activities.EXCLUDED_CONTENT;
+                errorDesc = "Excluding " + mimeType + " document with no URI";
+                activities.noDocument(nodeId,version);
+                continue;
+              }
+
               String fullContentPath = getDocumentContentPath(googleFile, documentURI);
 
               if ("/My Drive/Getting started.".equals(fullContentPath)) {
@@ -1590,7 +1597,8 @@ public class GoogleDriveRepositoryConnector extends BaseRepositoryConnector {
     if (googleFile.containsKey("fileSize")) {
       return googleFile.getDownloadUrl();
     } else {
-      return googleFile.getExportLinks().get(exportType);
+      Map<String, String> exportLinks = googleFile.getExportLinks();
+      return exportLinks == null ? null : exportLinks.get(exportType);
     }
   }
 
