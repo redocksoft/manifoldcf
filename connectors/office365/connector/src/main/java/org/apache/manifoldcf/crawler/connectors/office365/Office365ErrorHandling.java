@@ -31,7 +31,12 @@ public class Office365ErrorHandling {
   public static boolean isThrottle(Exception e) {
     if (e instanceof GraphServiceException) {
       int code = ((GraphServiceException)e).getResponseCode();
-      return code == 503 || code == 509 || code == 429;
+      // we include 401 here, as it appears that sometimes the 401 is thrown as a rate limit, but lets try and get more information
+      if(code == 401) {
+        String errorMessage = String.format("Unexpected 401 error, message=%s", ((GraphServiceException)e).getMessage(true));
+        Logging.connectors.warn(errorMessage, e);
+      }
+      return code == 503 || code == 509 || code == 429 || code == 401;
     } else return e instanceof InterruptedIOException;
   }
 
@@ -50,12 +55,14 @@ public class Office365ErrorHandling {
   }
 
   public static void handleOtherException(Exception e) throws ManifoldCFException, ServiceInterruption {
-    String errorMessage = String.format("O365: exception: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
-    Logging.connectors.debug(errorMessage, e);
     if (isThrottle(e)) {
+      String errorMessage = String.format("O365: exception resulting in throttle: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
+      Logging.connectors.warn(errorMessage, e);
       long currentTime = System.currentTimeMillis();
       throw new ServiceInterruption(errorMessage, e, currentTime + 300000L, currentTime + 3 * 60 * 60000L, -1, false);
     } else if(isRetryableConnectionFailure(e)) {
+      String errorMessage = String.format("O365: exception resulting in retryable connection failure: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
+      Logging.connectors.warn(errorMessage, e);
       long currentTime = System.currentTimeMillis();
       throw new ServiceInterruption(errorMessage, e, currentTime + 1000L, -1L, 5, true);
     }
