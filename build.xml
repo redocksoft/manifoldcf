@@ -1510,7 +1510,7 @@ Use Apache Forrest version forrest-0.9-dev or higher.
     <target name="download-h2">
         <mkdir dir="lib"/>
         <!-- Alfresco dependency, so download from there -->
-        <get src="http://repo2.maven.org/maven2/com/h2database/h2/1.3.158/h2-1.3.158.jar" dest="lib/h2-1.3.158.jar"/>
+        <get src="https://repo1.maven.org/maven2/com/h2database/h2/1.3.158/h2-1.3.158.jar" dest="lib/h2-1.3.158.jar"/>
     </target>
     
     <target name="download-h2-support">
