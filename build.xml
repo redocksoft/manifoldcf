@@ -191,7 +191,7 @@
     <property name="rat_bootstrap_url1" value="http://repo1.maven.org/maven2"/>
     <!-- you might need to tweak this from china so it works -->
     <property name="rat_bootstrap_url2" value="http://uk.maven.org/maven2"/>
-    <property name="microsoft.graph.version" value="1.6.0"/>
+    <property name="microsoft.graph.version" value="1.7.1"/>
     <property name="microsoft.graph.core.version" value="1.0.0"/>
 
   
