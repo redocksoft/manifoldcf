@@ -1,3 +1,20 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.manifoldcf.agents.output.redock;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,13 +55,13 @@ public class ReDockAction extends ReDockConnection {
   public void executeGET(String action)
     throws ManifoldCFException, ServiceInterruption {
     StringBuffer url = getApiUrl();
-    HttpGet method = new HttpGet(url.toString() + action);
-    call(method);
+    HttpGet get = new HttpGet(url.toString() + action);
+    call(get);
     String error = checkJson(jsonException);
     if (getResult() == Result.OK && error == null) {
       return;
     }
-    setResult("JSONERROR", Result.ERROR, error);
+    setResult("RESPONSEBODYERROR", Result.ERROR, getResponse());
     Logging.connectors.warn("reDock: GET " + url.toString() + action + " failed: " + getResponse());
   }
 
@@ -58,8 +75,7 @@ public class ReDockAction extends ReDockConnection {
     if (getResult() == Result.OK && error == null) {
       return;
     }
-
-    setResult("JSONERROR", Result.ERROR, error);
+    setResult("RESPONSEBODYERROR", Result.ERROR, getResponse());
     Logging.connectors.warn("reDock: PUT " + url.toString() + " failed: " + getResult() + " " + getResponse());
   }
 
@@ -75,8 +91,7 @@ public class ReDockAction extends ReDockConnection {
     if (getResult() == Result.OK || getResult() == Result.NOT_FOUND_ON_ENDPOINT && error == null) {
       return;
     }
-
-    setResult("JSONERROR", Result.ERROR, error);
+    setResult("RESPONSEBODYERROR", Result.ERROR, getResponse());
     Logging.connectors.warn("reDock: DELETE " + url.toString() + uri + " failed: " + getResponse());
   }
 
@@ -151,6 +166,7 @@ public class ReDockAction extends ReDockConnection {
     @Override
     public void writeTo(OutputStream out)
       throws IOException {
+      // yikes, why are we writing everything using Strings, and base64 encoding? should be multipart...
       PrintWriter pw = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8));
       try
       {
@@ -242,12 +258,10 @@ public class ReDockAction extends ReDockConnection {
           needComma = true;
         }
         pw.print("}");
-      } catch (ManifoldCFException e)
-      {
-        throw new IOException(e.getMessage());
-      } finally
-      {
         pw.flush();
+      } catch (ManifoldCFException e) {
+        throw new IOException(e);
+      } finally {
         IOUtils.closeQuietly(pw);
       }
     }
@@ -301,11 +315,9 @@ public class ReDockAction extends ReDockConnection {
     return needComma;
   }
 
-  protected static String jsonStringEscape(String value)
-  {
+  protected static String jsonStringEscape(String value) {
     StringBuilder sb = new StringBuilder("\"");
-    for (int i = 0; i < value.length(); i++)
-    {
+    for (int i = 0; i < value.length(); i++) {
       char x = value.charAt(i);
       if (x == '\n')
         sb.append('\\').append('n');
@@ -318,11 +330,8 @@ public class ReDockAction extends ReDockConnection {
       else if (x == '\f')
         sb.append('\\').append('f');
       else if (x < 32)
-      {
         sb.append("\\u").append(String.format(Locale.ROOT, "%04x", (int)x));
-      }
-      else
-      {
+      else {
         if (x == '\"' || x == '\\' || x == '/')
           sb.append('\\');
         sb.append(x);

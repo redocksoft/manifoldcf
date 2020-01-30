@@ -124,7 +124,7 @@ public class ReDockConnector extends BaseOutputConnector {
 
       client = HttpClients.custom()
         .setConnectionManager(connectionManager)
-        .setMaxConnTotal(1)
+        .setMaxConnTotal(3)
         .disableAutomaticRetries()
         .setDefaultRequestConfig(requestBuilder.build())
         .setRequestExecutor(new HttpRequestExecutor(socketTimeout))

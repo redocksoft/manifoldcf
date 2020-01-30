@@ -18,6 +18,7 @@
 package org.apache.manifoldcf.agents.output.redock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpException;
 import org.apache.http.HttpResponse;
@@ -84,19 +85,13 @@ public class ReDockConnection {
     @Override
     public void run() {
       try {
-        try {
-          HttpResponse resp = client.execute(method);
-          resultCode = resp.getStatusLine().getStatusCode();
-          response = getResponseBodyAsString(resp.getEntity());
-        } finally {
-          method.abort();
-        }
-      } catch (java.net.SocketTimeoutException e) {
-        exception = e;
-      } catch (InterruptedIOException e) {
-        // Just exit
+        HttpResponse resp = client.execute(method);
+        resultCode = resp.getStatusLine().getStatusCode();
+        response = getResponseBodyAsString(resp.getEntity());
       } catch (Throwable e) {
         exception = e;
+      } finally {
+        method.abort();
       }
     }
 
@@ -114,7 +109,7 @@ public class ReDockConnection {
         else if (t instanceof Error)
           throw (Error) t;
         else
-          throw new RuntimeException("Unexpected exception thrown: " + t.getMessage(), t);
+          throw new RuntimeException(t.getMessage(), t);
       }
     }
 
@@ -137,16 +132,13 @@ public class ReDockConnection {
   protected boolean call(HttpRequestBase method)
     throws ManifoldCFException, ServiceInterruption {
     CallThread ct = new CallThread(client, method);
+    ct.start();
     try {
-      ct.start();
-      try {
-        ct.finishUp();
-        response = ct.getResponse();
-        return handleResultCode(ct.getResultCode(), response, method.getMethod());
-      } catch (InterruptedException e) {
-        ct.interrupt();
-        throw new ManifoldCFException("Interrupted: " + e.getMessage(), e, ManifoldCFException.INTERRUPTED);
-      }
+      ct.finishUp();
+      response = ct.getResponse();
+      return handleResultCode(ct.getResultCode(), response, method.getMethod());
+    } catch (InterruptedException e) {
+      throw new ManifoldCFException("Interrupted: " + e.getMessage(), e, ManifoldCFException.INTERRUPTED);
     } catch (HttpException e) {
       handleHttpException(e);
       return false;
@@ -173,9 +165,9 @@ public class ReDockConnection {
       setResult(IOutputHistoryActivity.HTTP_ERROR, Result.ERROR, "HTTP code = " + code + ", Response = " + response);
       return false;
     } else if (code >= 500 && code < 600) {
-      setResult(IOutputHistoryActivity.HTTP_ERROR, Result.ERROR, "Server exception: " + response);
+      setResult(IOutputHistoryActivity.HTTP_ERROR, Result.ERROR, "Server exception HTTP code = " + code + " :" + response);
       long currentTime = System.currentTimeMillis();
-      throw new ServiceInterruption("Server exception: " + response,
+      throw new ServiceInterruption("Server exception HTTP code = " + code + ", Response = " + response,
         new ManifoldCFException(response),
         currentTime + 300000L,
         currentTime + 20L * 60000L,
@@ -210,33 +202,24 @@ public class ReDockConnection {
     throws IOException, HttpException {
     InputStream is = entity.getContent();
     if (is != null) {
+      Writer w = new StringWriter();
+      Charset charSet = StandardCharsets.UTF_8;
       try {
-        Charset charSet = StandardCharsets.UTF_8;
-        try {
-          ContentType ct = ContentType.get(entity);
-          if (ct != null && ct.getCharset() != null) {
-            charSet = ct.getCharset();
-          }
-        } catch (ParseException e) {
-          // ignore
+        ContentType ct = ContentType.get(entity);
+        if (ct != null && ct.getCharset() != null) {
+          charSet = ct.getCharset();
         }
-        char[] buffer = new char[65536];
-        Reader r = new InputStreamReader(is, charSet);
-        Writer w = new StringWriter();
-        try {
-          while (true) {
-            int amt = r.read(buffer);
-            if (amt == -1)
-              break;
-            w.write(buffer, 0, amt);
-          }
-        } finally {
-          w.flush();
-        }
-        return w.toString();
-      } finally {
-        is.close();
+      } catch (ParseException e) {
+        // ignore
       }
+      Reader r = new InputStreamReader(is, charSet);
+      try {
+        IOUtils.copy(r, w);
+      } finally {
+        IOUtils.closeQuietly(r);
+        IOUtils.closeQuietly(w);
+      }
+      return w.toString();
     }
     return "";
   }
