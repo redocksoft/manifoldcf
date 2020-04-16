@@ -1,5 +1,10 @@
+/**
+ * Copyright reDock Inc. 2020, All Rights Reserved
+ */
+
 package org.apache.manifoldcf.agents.transformation.redockredactor;
 
+import org.apache.manifoldcf.core.database.BaseTable;
 import org.apache.manifoldcf.core.interfaces.*;
 import org.apache.manifoldcf.core.system.ManifoldCF;
 
@@ -7,27 +12,27 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ReplacementsManager extends org.apache.manifoldcf.core.database.BaseTable {
+public class ReplacementsManager extends BaseTable {
     // NOTE This must be in capital letters
     protected final static String DATABASE_TABLE_NAME = "REDOCK_REDACTOR_REPLACEMENTS_TABLE";
 
-    protected final static String idField = "id";
-    protected final static String groupIdField = "groupId";
-    protected final static String targetField = "target";
-    protected final static String replacementField = "replacement";
+    protected final static String ID_FIELD = "id";
+    protected final static String GROUP_ID_FIELD = "groupId";
+    protected final static String TARGET_FIELD = "target";
+    protected final static String REPLACEMENT_FIELD = "replacement";
 
     /**
      * The overall table cache key
      */
-    protected final static String TABLE_CACHEKEY = "table-" + DATABASE_TABLE_NAME;
+    protected final static String TABLE_CACHE_KEY = "table-" + DATABASE_TABLE_NAME;
     /**
      * The prefix of the per-key cache key
      */
-    protected final static String CACHEKEY_PREFIX = TABLE_CACHEKEY + "-";
+    protected final static String CACHE_KEY_PREFIX = TABLE_CACHE_KEY + "-";
     /**
      * The overall table cache key set
      */
-    protected final static StringSet tableCacheKeySet = new StringSet(TABLE_CACHEKEY);
+    protected final static StringSet tableCacheKeySet = new StringSet(TABLE_CACHE_KEY);
 
     /**
      * The thread context
@@ -60,13 +65,13 @@ public class ReplacementsManager extends org.apache.manifoldcf.core.database.Bas
 
         // Create the table
         Map columnMap = new HashMap();
-        columnMap.put(idField, new ColumnDescription("BIGINT", true, false, null, null, false));
-        columnMap.put(groupIdField, new ColumnDescription("VARCHAR(255)", false, false, null, null, false));
-        columnMap.put(targetField, new ColumnDescription("VARCHAR(255)", false, true, null, null, false));
-        columnMap.put(replacementField, new ColumnDescription("VARCHAR(255)", false, true, null, null, false));
+        columnMap.put(ID_FIELD, new ColumnDescription("BIGINT", true, false, null, null, false));
+        columnMap.put(GROUP_ID_FIELD, new ColumnDescription("VARCHAR(1024)", false, false, null, null, false));
+        columnMap.put(TARGET_FIELD, new ColumnDescription("VARCHAR(1024)", false, true, null, null, false));
+        columnMap.put(REPLACEMENT_FIELD, new ColumnDescription("VARCHAR(1024)", false, true, null, null, false));
         performCreate(columnMap, null);
         // Create an index
-        performAddIndex(null, new IndexDescription(false, new String[]{groupIdField}));
+        performAddIndex(null, new IndexDescription(false, new String[]{GROUP_ID_FIELD}));
     }
 
     /**
@@ -76,19 +81,19 @@ public class ReplacementsManager extends org.apache.manifoldcf.core.database.Bas
             throws ManifoldCFException {
         // We will cache this against the table as a whole, and also against the
         // values for the given group.  Any changes to either will invalidate it.
-        StringSet cacheKeys = new StringSet(new String[]{TABLE_CACHEKEY, makeCacheKey(groupId)});
+        StringSet cacheKeys = new StringSet(new String[]{TABLE_CACHE_KEY, makeCacheKey(groupId)});
         // Construct the parameters
         ArrayList params = new ArrayList();
         params.add(groupId);
         // Perform the query
-        IResultSet set = performQuery("SELECT " + targetField + "," + replacementField + " FROM " + getTableName() +
-                " WHERE " + groupIdField + "=?", params, cacheKeys, null);
+        IResultSet set = performQuery("SELECT " + TARGET_FIELD + "," + REPLACEMENT_FIELD + " FROM " + getTableName() +
+                " WHERE " + GROUP_ID_FIELD + "=?", params, cacheKeys, null);
         // Assemble the results
         ReplacementRow[] results = new ReplacementRow[set.getRowCount()];
         int i = 0;
         while (i < results.length) {
             IResultRow row = set.getRow(i);
-            results[i] = new ReplacementRow(groupId, (String) row.getValue(targetField), (String) row.getValue(replacementField));
+            results[i] = new ReplacementRow(groupId, (String) row.getValue(TARGET_FIELD), (String) row.getValue(REPLACEMENT_FIELD));
             i++;
         }
         return results;
@@ -101,10 +106,10 @@ public class ReplacementsManager extends org.apache.manifoldcf.core.database.Bas
             throws ManifoldCFException {
         // Prepare the fields
         Map fields = new HashMap();
-        fields.put(idField, IDFactory.make(threadContext));
-        fields.put(groupIdField, replacement.groupId);
-        fields.put(targetField, replacement.target);
-        fields.put(replacementField, replacement.replacement);
+        fields.put(ID_FIELD, IDFactory.make(threadContext));
+        fields.put(GROUP_ID_FIELD, replacement.groupId);
+        fields.put(TARGET_FIELD, replacement.target);
+        fields.put(REPLACEMENT_FIELD, replacement.replacement);
         // Prepare the invalidation keys
         StringSet invalidationKeys = new StringSet(new String[]{makeCacheKey(replacement.groupId)});
         performInsert(fields, invalidationKeys);
@@ -123,9 +128,9 @@ public class ReplacementsManager extends org.apache.manifoldcf.core.database.Bas
         ArrayList params = new ArrayList();
         params.add(groupId);
         // Prepare the invalidation keys
-        StringSet invalidationKeys = new StringSet(new String[]{TABLE_CACHEKEY});
+        StringSet invalidationKeys = new StringSet(new String[]{TABLE_CACHE_KEY});
         // Perform the delete
-        performDelete("WHERE " + groupIdField + "=?", params, invalidationKeys);
+        performDelete("WHERE " + GROUP_ID_FIELD + "=?", params, invalidationKeys);
     }
 
     /**
@@ -140,6 +145,6 @@ public class ReplacementsManager extends org.apache.manifoldcf.core.database.Bas
      * Construct a cache key for the given lookup key
      */
     protected static String makeCacheKey(String id) {
-        return CACHEKEY_PREFIX + id;
+        return CACHE_KEY_PREFIX + id;
     }
 }

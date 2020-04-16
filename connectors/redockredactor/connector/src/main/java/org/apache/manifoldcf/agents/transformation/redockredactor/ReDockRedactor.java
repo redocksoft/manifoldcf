@@ -1,18 +1,22 @@
+/**
+ * Copyright reDock Inc. 2020, All Rights Reserved
+ */
+
 package org.apache.manifoldcf.agents.transformation.redockredactor;
 
 import com.redock.redactor.lib.Redactor;
-import com.redock.redactor.lib.Redactor.Companion.RedactorInvalidReplacements;
-import com.redock.redactor.lib.Redactor.Companion.RedactorUnsupportedFileType;
+import com.redock.redactor.lib.RedactorInvalidReplacements;
+import com.redock.redactor.lib.RedactorUnsupportedFileType;
+import org.apache.commons.io.IOUtils;
 import org.apache.manifoldcf.agents.interfaces.IOutputAddActivity;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.agents.system.ManifoldCF;
 import org.apache.manifoldcf.core.interfaces.*;
 import org.apache.manifoldcf.crawler.system.Logging;
+import org.apache.manifoldcf.ui.i18n.Messages;
 
-import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +29,9 @@ import java.util.Map;
  * second value is a "replacement" value that will be inserted in place of the target value in the documents.
  */
 public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.BaseTransformationConnector {
+    public static final String DEFAULT_BUNDLE_NAME="org.apache.manifoldcf.agents.transformation.redockredactor.common";
+    public static final String DEFAULT_PATH_NAME="org.apache.manifoldcf.agents.transformation.redockredactor";
+
     public static final String _rcsid = "@(#)$Id$";
 
     protected static final String ACTIVITY_PROCESS = "process";
@@ -79,6 +86,9 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
             if (replacements.size() == 0) {
                 return "No replacements found.";
             }
+            redactor.validateReplacements(replacements);
+        } catch (RedactorInvalidReplacements e) {
+            return "Invalid replacements" + e.getMessage();
         } catch (Exception e) {
             return "Error checking connector status: " + e.getMessage();
         }
@@ -120,19 +130,27 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
         long startTime = System.currentTimeMillis();
         String resultCode = "OK";
         String description = null;
+        ByteArrayInputStream redacted = null;
         Long length = null;
 
         try {
             Map<String, String> replacements = retrieveReplacements(getConfiguration(), currentContext);
 
             if(redactor.supportsFile(document.getFileName(), document.getMimeType())) {
-                redactor.validateReplacements(replacements);
-                ByteArrayInputStream redacted = redactor.redactFileStream(document.getBinaryStream(), document.getFileName(), document.getMimeType(), replacements, true);
+                ByteArrayOutputStream output = null;
+                try {
+                    output = new ByteArrayOutputStream();
+                    redactor.redactStream(document.getBinaryStream(), document.getFileName(), document.getMimeType(), replacements, output, true);
+                } finally {
+                    IOUtils.closeQuietly(output);
+                }
+
+                redacted = new ByteArrayInputStream(output.toByteArray());
 
                 // Use of available() here is only valid because we're dealing with a ByteArrayInputStream.
                 document.setBinary(redacted, redacted.available());
             } else {
-                Logging.connectors.warn("reDockRedactor: Unsupported File Type was not caught by supportsFile() with fileName" + document.getFileName() + " and mimeType " + document.getMimeType());
+                Logging.connectors.info("reDockRedactor: Unsupported File Type was not caught by supportsFile() with fileName" + document.getFileName() + " and mimeType " + document.getMimeType());
             }
 
             int rval = activities.sendDocument(documentURI, document);
@@ -152,6 +170,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
             description = e.getMessage();
             throw e;
         } finally {
+            IOUtils.closeQuietly(redacted);
             activities.recordActivity(startTime, ACTIVITY_PROCESS, length, documentURI,
                     resultCode, description);
         }
@@ -162,7 +181,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
                                           IHTTPOutput out, Locale locale, ConfigParams parameters,
                                           List<String> tabsArray) throws ManifoldCFException, IOException {
         super.outputConfigurationHeader(threadContext, out, locale, parameters, tabsArray);
-        tabsArray.add(Messages.getString(locale, CONFIG_TAB));
+        tabsArray.add(Messages.getString(ReDockRedactor.class, DEFAULT_BUNDLE_NAME, locale, CONFIG_TAB, null));
         outputResource(CONFIG_HEADER, out, locale, null, null, null, null);
     }
 
@@ -214,7 +233,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
                 }
 
                 byte[] replacementsBytes = variableContext.getBinaryBytes("replacementsfileupload");
-                java.io.InputStream is = new java.io.ByteArrayInputStream(replacementsBytes);
+                InputStream input = new ByteArrayInputStream(replacementsBytes);
 
                 // This code saves the uploaded file to the file-resources folder. Keeping it around in case we
                 // ever want to support that approach in the future.
@@ -222,7 +241,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
 //                    OutputStream outStream = new FileOutputStream(replacementFile);
 //                    outStream.write(replacementsBytes);
 
-                for (Map.Entry<String, String> entry : redactor.readReplacement(is).entrySet()) {
+                for (Map.Entry<String, String> entry : redactor.readReplacement(input).entrySet()) {
                     replacementsManager.addReplacement(new ReplacementRow(
                             connectorName,
                             entry.getKey(),
@@ -258,7 +277,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
         if (sequenceNumber != null)
             paramMap.put("SeqNum", sequenceNumber.toString());
 
-        Messages.outputResourceWithVelocity(out, locale, resName, paramMap);
+        Messages.outputResourceWithVelocity(out, ReDockRedactor.class, DEFAULT_BUNDLE_NAME, DEFAULT_PATH_NAME, locale, resName, paramMap);
     }
 
     /**

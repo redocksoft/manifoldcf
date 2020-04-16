@@ -1,3 +1,7 @@
+/**
+ * Copyright reDock Inc. 2020, All Rights Reserved
+ */
+
 package org.apache.manifoldcf.agents.transformation.redockredactor;
 
 public class ReplacementRow {

@@ -1,3 +1,7 @@
+<!--
+  Copyright reDock Inc. 2020, All Rights Reserved
+-->
+
 <script type="text/javascript">
 function RedockRedactorDeleteReplacements()
 {
