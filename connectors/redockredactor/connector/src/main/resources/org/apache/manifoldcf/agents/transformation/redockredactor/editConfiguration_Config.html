@@ -1,0 +1,42 @@
+<!--
+  Copyright reDock Inc. 2020, All Rights Reserved
+-->
+
+#if($TabName == $ResourceBundle.getString('reDockRedactor.Configs'))
+<table class="displaytable">
+  <tr>
+    <td class="description"><nobr>$Encoder.bodyEscape($ResourceBundle.getString('reDockRedactor.ReplacementsPath'))</nobr>:</td>
+    <td class="value"><input name="replacementspath" type="text"
+      value="$Encoder.attributeEscape($REPLACEMENTSPATH)" size="48" />
+    </td>
+    <td>
+      <em>* Absolute path or relative path to file within <b>(manifoldFolder)/dist/file-resources</b>. File must be a .tsv file with target keyword/regex in first column and replacement string in second column. Will be used over the database-stored replacements if a matching file is found.</em>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="3"><b>OR</b></td>
+  </tr>
+  <tr>
+    <td class="description"><nobr>$Encoder.bodyEscape($ResourceBundle.getString('reDockRedactor.ReplacementsFileUpload'))</nobr>:</td>
+    <td class="value"><input name="replacementsfileupload" type="file" size="48" /></td>
+    <td>
+      <input type="hidden" name="configop" value="Continue"/>
+      <!-- friendly reminder that the "value" of the checkbox input will ONLY be returned IF the checkbox is checked -->
+      <input type="checkbox" name="appendreplacements" value="true" ><label><nobr>$ResourceBundle.getString('reDockRedactor.Append')</nobr></label></input>
+      <input type="button" onclick="javascript:RedockRedactorAddReplacements();" alt="$Encoder.attributeEscape($ResourceBundle.getString('reDockRedactor.AddReplacements'))" value="$Encoder.attributeEscape($ResourceBundle.getString('reDockRedactor.AddToDB'))"/>&nbsp;
+      <input type="button" onclick="javascript:RedockRedactorDeleteReplacements();" alt="$Encoder.attributeEscape($ResourceBundle.getString('reDockRedactor.DeleteReplacements'))" value="$Encoder.attributeEscape($ResourceBundle.getString('reDockRedactor.ClearDB'))"/>
+    </td>
+  </tr>
+  <tr><td colspan="3"></td></tr>
+  <tr>
+    <td class="description"><nobr>$Encoder.bodyEscape($ResourceBundle.getString('reDockRedactor.ReplacementsFound'))</nobr>:</td>
+    <td>$Encoder.attributeEscape($REPLACEMENTSFOUND)</td>
+    <td>&nbsp;</td>
+  </tr>
+</table>
+
+#else
+
+<input type="hidden" name="replacementspath" value="$Encoder.attributeEscape($REPLACEMENTSPATH)" />
+
+#end

@@ -1,0 +1,82 @@
+<!--
+  Copyright reDock Inc. 2020, All Rights Reserved
+-->
+
+<project name="redockredactor" default="all">
+
+    <property environment="env"/>
+    <condition property="mcf-dist" value="${env.MCFDISTPATH}">
+        <isset property="env.MCFDISTPATH"/>
+    </condition>
+    <property name="abs-dist" location="../../dist"/>
+    <condition property="mcf-dist" value="${abs-dist}">
+        <not>
+            <isset property="env.MCFDISTPATH"/>
+        </not>
+    </condition>
+
+    <import file="${mcf-dist}/connector-build.xml"/>
+
+    <path id="connector-classpath">
+        <path refid="mcf-connector-build.connector-classpath"/>
+        <!-- Ant doesn't have a simple way to resolve artifacts from Nexus so we rely on the maven build to resolve
+        the artifacts and then reference them from .m2 -->
+        <fileset dir="${user.home}/.m2/repository/com/redock/redactor/redactor-lib/1.6-SNAPSHOT/">
+            <include name="*.jar"/>
+        </fileset>
+        <fileset dir="${user.home}/.m2/repository/com/redock/lib-kotlin/lib-aspose/1.6-SNAPSHOT/">
+            <include name="*.jar"/>
+        </fileset>
+        <fileset dir="${user.home}/.m2/repository/com/aspose/aspose-words/19.10/">
+            <include name="*.jar"/>
+        </fileset>
+        <fileset dir="${user.home}/.m2/repository/com/aspose/aspose-slides/19.9/">
+            <include name="*.jar"/>
+        </fileset>
+        <fileset dir="${user.home}/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.3.21/">
+            <include name="*.jar"/>
+        </fileset>
+        <fileset dir="${user.home}/.m2/repository/org/apache/logging/log4j/log4j-api-kotlin/1.0.1-SNAPSHOT/">
+            <include name="*.jar"/>
+        </fileset>
+        <fileset dir="${user.home}/.m2/repository/com/opencsv/opencsv/4.0">
+            <include name="*.jar"/>
+        </fileset>
+    </path>
+
+    <target name="lib" depends="mcf-connector-build.lib,precompile-check" if="canBuild">
+        <mkdir dir="dist/lib"/>
+        <copy todir="dist/lib">
+            <fileset dir="${user.home}/.m2/repository/com/redock/redactor/redactor-lib/1.6-SNAPSHOT/">
+                <include name="*.jar"/>
+            </fileset>
+            <fileset dir="${user.home}/.m2/repository/com/redock/lib-kotlin/lib-aspose/1.6-SNAPSHOT">
+                <include name="*.jar"/>
+            </fileset>
+            <fileset dir="${user.home}/.m2/repository/com/aspose/aspose-words/19.10/">
+                <include name="*.jar"/>
+            </fileset>
+            <fileset dir="${user.home}/.m2/repository/com/aspose/aspose-slides/19.9/">
+                <include name="*.jar"/>
+            </fileset>
+            <fileset dir="${user.home}/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.3.21/">
+                <include name="*.jar"/>
+            </fileset>
+            <fileset dir="${user.home}/.m2/repository/org/apache/logging/log4j/log4j-api-kotlin/1.0.1-SNAPSHOT/">
+                <include name="*.jar"/>
+            </fileset>
+            <fileset dir="${user.home}/.m2/repository/com/opencsv/opencsv/4.0">
+                <include name="*.jar"/>
+            </fileset>
+        </copy>
+        <mkdir dir="dist/resources/replacements"/>
+    </target>
+
+    <target name="deliver-connector" depends="mcf-connector-build.deliver-connector">
+        <antcall target="general-add-transformation-connector">
+            <param name="connector-label" value="reDock Redactor"/>
+            <param name="connector-class" value="org.apache.manifoldcf.agents.transformation.redockredactor.ReDockRedactor"/>
+        </antcall>
+    </target>
+
+</project>
