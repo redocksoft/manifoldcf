@@ -19,12 +19,6 @@
 <!--
 function s${SeqNum}_checkSpecificationForSave()
 {
-  if (editjob.s${SeqNum}_googledrivequery.value == "") {
-    alert("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.SeedQueryCannotBeNull'))");
-    SelectSequencedTab("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('GoogleDriveRepositoryConnector.GoogleDriveQuery'))",${SeqNum});
-    editjob.s${SeqNum}_googledrivequery.focus();
-    return false;
-  }
   return true;
 }
  
