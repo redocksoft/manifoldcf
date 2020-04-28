@@ -106,7 +106,7 @@ public class ReplacementsManager extends BaseTable {
             throws ManifoldCFException {
         // Prepare the fields
         Map fields = new HashMap();
-        fields.put(ID_FIELD, IDFactory.make(threadContext));
+        fields.put(ID_FIELD, new Long(IDFactory.make(threadContext)));
         fields.put(GROUP_ID_FIELD, replacement.groupId);
         fields.put(TARGET_FIELD, replacement.target);
         fields.put(REPLACEMENT_FIELD, replacement.replacement);
