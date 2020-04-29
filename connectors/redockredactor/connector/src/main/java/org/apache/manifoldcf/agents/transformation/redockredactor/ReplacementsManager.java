@@ -18,6 +18,7 @@ public class ReplacementsManager extends BaseTable {
 
     protected final static String ID_FIELD = "id";
     protected final static String GROUP_ID_FIELD = "groupId";
+    protected final static String TYPE_FIELD = "type";
     protected final static String TARGET_FIELD = "target";
     protected final static String REPLACEMENT_FIELD = "replacement";
 
@@ -67,6 +68,7 @@ public class ReplacementsManager extends BaseTable {
         Map columnMap = new HashMap();
         columnMap.put(ID_FIELD, new ColumnDescription("BIGINT", true, false, null, null, false));
         columnMap.put(GROUP_ID_FIELD, new ColumnDescription("VARCHAR(1024)", false, false, null, null, false));
+        columnMap.put(TYPE_FIELD, new ColumnDescription("CHAR(1)", false, true, null, null, false));
         columnMap.put(TARGET_FIELD, new ColumnDescription("VARCHAR(1024)", false, true, null, null, false));
         columnMap.put(REPLACEMENT_FIELD, new ColumnDescription("VARCHAR(1024)", false, true, null, null, false));
         performCreate(columnMap, null);
@@ -86,14 +88,14 @@ public class ReplacementsManager extends BaseTable {
         ArrayList params = new ArrayList();
         params.add(groupId);
         // Perform the query
-        IResultSet set = performQuery("SELECT " + TARGET_FIELD + "," + REPLACEMENT_FIELD + " FROM " + getTableName() +
+        IResultSet set = performQuery("SELECT " + TYPE_FIELD + "," + TARGET_FIELD + "," + REPLACEMENT_FIELD + " FROM " + getTableName() +
                 " WHERE " + GROUP_ID_FIELD + "=?", params, cacheKeys, null);
         // Assemble the results
         ReplacementRow[] results = new ReplacementRow[set.getRowCount()];
         int i = 0;
         while (i < results.length) {
             IResultRow row = set.getRow(i);
-            results[i] = new ReplacementRow(groupId, (String) row.getValue(TARGET_FIELD), (String) row.getValue(REPLACEMENT_FIELD));
+            results[i] = new ReplacementRow(groupId, (String) row.getValue(TYPE_FIELD), (String) row.getValue(TARGET_FIELD), (String) row.getValue(REPLACEMENT_FIELD));
             i++;
         }
         return results;
@@ -108,6 +110,7 @@ public class ReplacementsManager extends BaseTable {
         Map fields = new HashMap();
         fields.put(ID_FIELD, new Long(IDFactory.make(threadContext)));
         fields.put(GROUP_ID_FIELD, replacement.groupId);
+        fields.put(TYPE_FIELD, replacement.type);
         fields.put(TARGET_FIELD, replacement.target);
         fields.put(REPLACEMENT_FIELD, replacement.replacement);
         // Prepare the invalidation keys

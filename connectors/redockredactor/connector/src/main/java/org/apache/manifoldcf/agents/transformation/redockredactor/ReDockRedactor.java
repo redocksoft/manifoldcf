@@ -7,6 +7,7 @@ package org.apache.manifoldcf.agents.transformation.redockredactor;
 import com.redock.redactor.lib.Redactor;
 import com.redock.redactor.lib.RedactorInvalidReplacements;
 import com.redock.redactor.lib.RedactorUnsupportedFileType;
+import com.redock.redactor.lib.Replacement;
 import org.apache.commons.io.IOUtils;
 import org.apache.manifoldcf.agents.interfaces.IOutputAddActivity;
 import org.apache.manifoldcf.agents.interfaces.RepositoryDocument;
@@ -17,10 +18,7 @@ import org.apache.manifoldcf.crawler.system.Logging;
 import org.apache.manifoldcf.ui.i18n.Messages;
 
 import java.io.*;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * This connector uses the Redactor from reDock to obfuscate documents. The obfuscation is based off replacements
@@ -34,8 +32,8 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
 
     public static final String _rcsid = "@(#)$Id$";
 
-    protected static final String ACTIVITY_PROCESS = "process";
-    protected static final String[] activitiesList = new String[]{ACTIVITY_PROCESS};
+    protected static final String ACTIVITY_REDACT = "redact";
+    protected static final String[] activitiesList = new String[]{ACTIVITY_REDACT};
 
     /**
      * Configuration tab for this connector
@@ -82,7 +80,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
     @Override
     public String check() throws ManifoldCFException {
         try {
-            Map<String, String> replacements = retrieveReplacements(getConfiguration(), currentContext);
+            List<Replacement> replacements = retrieveReplacements(getConfiguration(), currentContext);
             if (replacements.size() == 0) {
                 return "No replacements found.";
             }
@@ -134,7 +132,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
         Long length = null;
 
         try {
-            Map<String, String> replacements = retrieveReplacements(getConfiguration(), currentContext);
+            List<Replacement> replacements = retrieveReplacements(getConfiguration(), currentContext);
 
             if(redactor.supportsFile(document.getFileName(), document.getMimeType())) {
                 ByteArrayOutputStream output = null;
@@ -171,7 +169,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
             throw e;
         } finally {
             IOUtils.closeQuietly(redacted);
-            activities.recordActivity(startTime, ACTIVITY_PROCESS, length, documentURI,
+            activities.recordActivity(startTime, ACTIVITY_REDACT, length, documentURI,
                     resultCode, description);
         }
     }
@@ -241,11 +239,12 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
 //                    OutputStream outStream = new FileOutputStream(replacementFile);
 //                    outStream.write(replacementsBytes);
 
-                for (Map.Entry<String, String> entry : redactor.readReplacement(input).entrySet()) {
+                for (Replacement entry : redactor.readReplacement(input)) {
                     replacementsManager.addReplacement(new ReplacementRow(
                             connectorName,
-                            entry.getKey(),
-                            entry.getValue()
+                            entry.getType(),
+                            entry.getTarget(),
+                            entry.getReplacement()
                     ));
                 }
             }
@@ -294,7 +293,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
      * 2- Check if REPLACEMENTSPATH is a relative path to a file inside [ManifoldCF_install_folder]/file-resources
      * 3- Check if there are replacements in the DB
      */
-    private Map<String, String> retrieveReplacements(ConfigParams configParams, IThreadContext threadContext) throws ManifoldCFException {
+    private List<Replacement> retrieveReplacements(ConfigParams configParams, IThreadContext threadContext) throws ManifoldCFException {
         // Load configuration from parameters
         final ReDockRedactorConfig config = new ReDockRedactorConfig(configParams);
         File replacementsFile = new File(config.getReplacementsPath());
@@ -302,14 +301,14 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
             replacementsFile = new File(fileDirectory, config.getReplacementsPath());
         }
 
-        Map<String, String> replacements = new HashMap<>();
+        List<Replacement> replacements = new ArrayList();
         if (replacementsFile.exists()) {
             replacements = redactor.readReplacements(replacementsFile);
         } else {
             ReplacementsManager replacementsManager = new ReplacementsManager(threadContext);
             ReplacementRow[] rows = replacementsManager.getReplacements(config.getConnectorName());
             for (ReplacementRow row : rows) {
-                replacements.put(row.target, row.replacement);
+                replacements.add(new Replacement(row.type, row.target, row.replacement));
             }
         }
 
