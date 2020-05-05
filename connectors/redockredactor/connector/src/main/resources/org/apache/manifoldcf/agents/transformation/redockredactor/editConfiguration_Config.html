@@ -30,8 +30,11 @@
   <tr><td colspan="3"></td></tr>
   <tr>
     <td class="description"><nobr>$Encoder.bodyEscape($ResourceBundle.getString('reDockRedactor.ReplacementsFound'))</nobr>:</td>
-    <td>$Encoder.attributeEscape($REPLACEMENTSFOUND)</td>
-    <td>&nbsp;</td>
+    #if($Encoder.bodyEscape($REPLACEMENTSEXCEPTION) == '')
+    <td colspan="2">$Encoder.attributeEscape($REPLACEMENTSFOUND)</td>
+    #else
+    <td class="label-danger" colspan="2">$Encoder.bodyEscape($REPLACEMENTSEXCEPTION)</td>
+    #end
   </tr>
 </table>
 

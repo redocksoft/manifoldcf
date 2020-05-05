@@ -15,7 +15,8 @@ public class ReDockRedactorConfig extends ReDockRedactorParam {
             {
                     ParameterEnum.REPLACEMENTSPATH,
                     ParameterEnum.CONNECTORNAME,
-                    ParameterEnum.REPLACEMENTSFOUND // readonly
+                    ParameterEnum.REPLACEMENTSFOUND,
+                    ParameterEnum.REPLACEMENTSEXCEPTION
             };
 
     /**
@@ -52,6 +53,8 @@ public class ReDockRedactorConfig extends ReDockRedactorParam {
     final public String getConnectorName() {
         return get(ParameterEnum.CONNECTORNAME);
     }
+
+    final public String getReplacementsException() { return get(ParameterEnum.REPLACEMENTSEXCEPTION); }
 
     private void put(ParameterEnum param, String value, String defaultValue) {
         if (value == null) {
