@@ -238,21 +238,41 @@ public class ReDockConnector extends BaseOutputConnector {
     return DOCUMENTSTATUS_ACCEPTED;
   }
 
+  /**
+   * Keep in sync #FILETYPE #MIMETYPES in the reDock repository. At some point, we should retrieve these from reDock
+   * directly
+   */
   private final static Set<String> acceptableMimeTypes = new HashSet<String>();
   static
   {
+    // word
     acceptableMimeTypes.add("application/msword"); // .doc, .dot
-    acceptableMimeTypes.add("application/pdf");
     acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.wordprocessingml.document"); // .docx
-    acceptableMimeTypes.add("application/vnd.ms-word.document.macroenabled.12"); // .docm
-    acceptableMimeTypes.add("application/vnd.ms-word.template.macroenabled.12"); // .dotm
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.wordprocessingml.template"); // .dotx
+    acceptableMimeTypes.add("application/vnd.ms-word.document.macroEnabled.12"); // .docm
+    acceptableMimeTypes.add("application/vnd.ms-word.template.macroEnabled.12"); // .dotm
+
+    // powerpoint
     acceptableMimeTypes.add("application/vnd.ms-powerpoint"); // .ppt, .pot, .pps, .ppa
     acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.presentation"); // .pptx
     acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.template"); // .potx
-    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.slideshow"); // ppsx
-    acceptableMimeTypes.add("application/vnd.ms-powerpoint.presentation.macroenabled.12"); //.pptm
-    acceptableMimeTypes.add("application/vnd.ms-powerpoint.addin.macroenabled.12"); // .ppam
-    acceptableMimeTypes.add("application/vnd.ms-powerpoint.slideshow.macroenabled.12"); // .ppsm
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.presentationml.slideshow"); // .ppsx
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint.addin.macroEnabled.12"); // .ppam
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint.presentation.macroEnabled.12"); // .pptm
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint.template.macroEnabled.12"); // .potm
+    acceptableMimeTypes.add("application/vnd.ms-powerpoint.slideshow.macroEnabled.12"); // .ppsm
+
+    // pdf
+    acceptableMimeTypes.add("application/pdf"); // .pdf
+
+    // excel
+    acceptableMimeTypes.add("application/vnd.ms-excel"); // .xls, .xlt, .xla
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); // .xlsx
+    acceptableMimeTypes.add("application/vnd.openxmlformats-officedocument.spreadsheetml.template"); // .xltx
+    acceptableMimeTypes.add("application/vnd.ms-excel.sheet.macroEnabled.12"); //.xlsm
+    acceptableMimeTypes.add("application/vnd.ms-excel.template.macroEnabled.12"); // .xltm
+    acceptableMimeTypes.add("application/vnd.ms-excel.addin.macroEnabled.12"); // .xlam
+    acceptableMimeTypes.add("application/vnd.ms-excel.sheet.binary.macroEnabled.12"); // .xlsb
   }
 
   /** Detect if a mime type is indexable or not.  This method is used by participating repository connectors to pre-filter the number of
@@ -267,6 +287,8 @@ public class ReDockConnector extends BaseOutputConnector {
     if (mimeType == null) {
       return false;
     }
+    // TODO get these from the server -- the server can return a dynamic list of types based on the version context
+    //  and the client, for example (we can cache here also, for perf)
     return acceptableMimeTypes.contains(mimeType.toLowerCase(Locale.ROOT));
   }
 
