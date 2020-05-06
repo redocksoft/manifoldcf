@@ -13,15 +13,14 @@ function RedockRedactorDeleteReplacements()
 
 function RedockRedactorAddReplacements()
 {
-  if (editconnection.replacementsfileupload.value == "")
+  if (editconnection.replacementsfileupload.value === "")
   {
     alert("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('reDockRedactor.ChooseAReplacementsFile'))");
     editconnection.replacementsfileupload.focus();
   }
-  else
+  else if(editconnection.replacementspath.value === "" || confirm("$Encoder.bodyJavascriptEscape($ResourceBundle.getString('reDockRedactor.ConfirmReplacementsPathOverwrite'))"))
   {
     editconnection.configop.value = "Add";
-    const test = editconnection.appendreplacements.value;
     postForm();
   }
 }

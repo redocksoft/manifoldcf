@@ -21,7 +21,8 @@ public class ReDockRedactorParam extends HashMap<ParameterEnum, String> {
     // Name of the tsv file to look for in the file-resources folder at the root of the manifold installation
     REPLACEMENTSPATH(""),
     CONNECTORNAME(""),
-    REPLACEMENTSFOUND("0"); // READONLY
+    REPLACEMENTSFOUND("0"),
+    REPLACEMENTSEXCEPTION("");
 
     final protected String defaultValue;
 
