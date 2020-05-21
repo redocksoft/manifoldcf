@@ -21,6 +21,9 @@ import java.net.URLEncoder;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.redock.redactor.lib.RedactorKt.REPLACEMENT_CONFIG_FILENAME;
+import static com.redock.redactor.lib.RedactorKt.REPLACEMENT_CONFIG_PATH;
+
 /**
  * This connector uses the Redactor from reDock to obfuscate documents. The obfuscation is based off replacements
  * that must be provided in the connector`s configuration. The replacements are a pair of strings (usually in a TSV file,
@@ -61,11 +64,6 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
      */
     protected final File fileDirectory = ManifoldCF.getFileProperty(ManifoldCF.fileResourcesProperty);
 
-    /**
-     * reDock Redactor
-     */
-    protected Redactor redactor = new Redactor();
-
     @Override
     public void install(IThreadContext threadContext) throws ManifoldCFException {
         super.install(threadContext);
@@ -93,7 +91,8 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
             if (replacements.size() == 0) {
                 return "No replacements found.";
             }
-            redactor.validateReplacements(replacements);
+
+            Redactor.Companion.validateReplacements(replacements);
         } catch (Exception e) {
             return "Error checking connector status: " + e.getMessage();
         }
@@ -141,28 +140,27 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
         try {
             List<Replacement> replacements = retrieveReplacements(getConfiguration(), currentContext);
 
+            Redactor redactor = new Redactor(replacements, true);
+
             if(redactor.supportsFile(document.getFileName(), document.getMimeType())) {
                 ByteArrayOutputStream output = null;
                 try {
                     // Replace content
                     output = new ByteArrayOutputStream();
-                    List<Replacement> contentReplacements = replacements.stream().filter(r -> r.getConfig().getReplaceInContent()).collect(Collectors.toList());
-                    redactor.redactStream(document.getBinaryStream(), document.getFileName(), document.getMimeType(), contentReplacements, output, true);
+                    redactor.redactStream(document.getBinaryStream(), document.getFileName(), document.getMimeType(), output);
 
                     // Replace FileName
-                    List<Replacement> fileNameReplacements = replacements.stream().filter(r -> r.getConfig().getReplaceInFilename()).collect(Collectors.toList());
-                    document.setFileName(redactor.redactString(document.getFileName(), fileNameReplacements, true));
+                    document.setFileName(redactor.redactString(document.getFileName(), new ReplacementConfig(REPLACEMENT_CONFIG_FILENAME)));
 
                     // Replace Paths
-                    List<Replacement> pathReplacements = replacements.stream().filter(r -> r.getConfig().getReplaceInPath()).collect(Collectors.toList());
                     List<String> redactedRootPath = new ArrayList<>();
                     for (String s : document.getRootPath()) {
-                        redactedRootPath.add(redactor.redactString(s, pathReplacements, true));
+                        redactedRootPath.add(redactor.redactString(s, new ReplacementConfig(REPLACEMENT_CONFIG_PATH)));
                     }
                     document.setRootPath(redactedRootPath);
                     List<String> redactedSourcePath = new ArrayList<>();
                     for (String s : document.getSourcePath()) {
-                        redactedSourcePath.add(redactor.redactString(s, pathReplacements, true));
+                        redactedSourcePath.add(redactor.redactString(s, new ReplacementConfig(REPLACEMENT_CONFIG_PATH)));
                     }
                     document.setSourcePath(redactedSourcePath);
 
@@ -171,10 +169,10 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
                     // uriTokens[0] is the Protocol (e.g. file:) so no replacement or encoding
                     documentURI = uriTokens[0] + "/";
                     for (int i = 1; i < uriTokens.length - 1; ++i) { //
-                        documentURI += URLEncoder.encode(redactor.redactString(uriTokens[i], pathReplacements, true), "UTF-8").replace("+", "%20");
+                        documentURI += URLEncoder.encode(redactor.redactString(uriTokens[i], new ReplacementConfig(REPLACEMENT_CONFIG_PATH)), "UTF-8").replace("+", "%20");
                         documentURI += "/";
                     }
-                    documentURI += URLEncoder.encode(redactor.redactString(uriTokens[uriTokens.length - 1], fileNameReplacements, true), "UTF-8").replace("+", "%20");
+                    documentURI += URLEncoder.encode(redactor.redactString(uriTokens[uriTokens.length - 1], new ReplacementConfig(REPLACEMENT_CONFIG_FILENAME)), "UTF-8").replace("+", "%20");
                 } finally {
                     IOUtils.closeQuietly(output);
                 }
@@ -194,7 +192,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
         } catch (RedactorUnsupportedFileType | RedactorInvalidReplacements | RedactorReplacementException e) {
             resultCode = "EXCEPTION";
             description = e.getMessage();
-            throw new ManifoldCFException("ProvidInvalid replacementsed replacements are invalid: " + e.getMessage(), e, ManifoldCFException.SETUP_ERROR);
+            throw new ManifoldCFException("Redaction error: " + e.getMessage(), e, ManifoldCFException.SETUP_ERROR);
         } catch (ServiceInterruption e) {
             resultCode = "SERVICEINTERRUPTION";
             description = e.getMessage();
@@ -278,7 +276,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
                 InputStream input = new ByteArrayInputStream(replacementsBytes);
 
                 try {
-                    for (Replacement entry : redactor.readReplacement(input)) {
+                    for (Replacement entry : Redactor.Companion.readReplacements(input)) {
                         replacementsManager.addReplacement(new ReplacementRow(
                                 connectorName,
                                 entry.getType(),
@@ -360,7 +358,7 @@ public class ReDockRedactor extends org.apache.manifoldcf.agents.transformation.
                 if (!replacementsFile.exists()) {
                     configParams.setParameter(ReDockRedactorParam.ParameterEnum.REPLACEMENTSEXCEPTION.name(), "Replacements File not found.");
                 } else {
-                    replacements = redactor.readReplacements(replacementsFile);
+                    replacements = Redactor.Companion.readReplacements(replacementsFile);
                 }
             }
         } catch (RedactorInvalidReplacements e) {
