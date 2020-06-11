@@ -26,6 +26,19 @@ public class Office365Session
   private IGraphServiceClient graphClient;
   private Office365Config config;
 
+  /*  There are the URL segments that are part of the 'system' document libraries that we are not interested in. There are no
+      other flags that distinguish between a system library and a normal library when doing a ?select=id,name,webUrl,system to the
+      drive query so the only way is to specify known system libraries we don't want (ie: all but Site Assets) and filter them out.
+      We must use the webUrl as the Library Name can be changed by users, even for sytem ones.
+  */
+  private static final String[] SITE_INVALID_URL_SEGMENTS = {
+          "/_catalogs",
+          "/SitePages",
+          "/Style%20Library",
+          "/FormServerTemplates",
+          "/IWConvertedForms"
+  };
+
   public Office365Session(Office365Config config)
   {
     this.config = config;
@@ -165,6 +178,46 @@ public class Office365Session
         b.add(driveItem);
       }
       page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
+    }
+  }
+
+  public List<Drive> getDrivesForSite(String siteId)
+          throws ClientException
+  {
+    try {
+      List<Drive> drives = new ArrayList<>();
+      /* We use the ?select API to provide the system selector which adds system libraries like "Site Assets"
+          See: https://stackoverflow.com/questions/47562127/can-no-longer-find-sharepoint-site-assets-list-via-graph-api.
+       */
+      IDriveCollectionPage page = graphClient.sites(siteId).drives().buildRequest()
+              .select("id,name,weburl,driveType,system")
+              .get();
+
+      while (page != null) {
+        for (Drive drive : page.getCurrentPage()) {
+          if (!drive.driveType.equals("documentLibrary")) {
+            continue;
+          }
+          boolean validUrl = true;
+          for (String invalidUrlPart : SITE_INVALID_URL_SEGMENTS) {
+            if (drive.webUrl.contains(invalidUrlPart)) {
+              validUrl = false;
+              break;
+            }
+          }
+          if (validUrl) {
+            drives.add(drive);
+          }
+        }
+        page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
+      }
+      return drives;
+    } catch (GraphServiceException e) {
+      if (e.getResponseCode() == 404 || e.getResponseCode() == 403) {
+        return null;
+      } else {
+        throw e;
+      }
     }
   }
 
