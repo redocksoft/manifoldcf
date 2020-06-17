@@ -220,12 +220,14 @@ public class Office365Connector extends BaseRepositoryConnector
     Office365Config config = getConfigParameters();
 
     for (Site site : new Office365ThreadedBlock<>(() -> session.currentSites(spec)).runBlocking()) {
-      Drive drive = new Office365ThreadedBlock<>(() -> session.getDriveForSite(site.id)).runBlocking();
-      if (drive != null) {
-        // we create one seed "virtual" document for each site that needs to be traversed
+      List<Drive> drives = new Office365ThreadedBlock<>(() -> session.getDrivesForSite(site.id)).runBlocking();
+      if (drives != null) {
+        // we create one seed "virtual" document for each drive that needs to be traversed
         // the format is SITESEED::siteid::driveid
-        Logging.connectors.info(String.format("O365: Seeding site %s on domain %s (id: %s, driveid: %s)", site.displayName, config.getOrganizationDomain(), site.id, drive.id));
-        activities.addSeedDocument(String.format("SITESEED::%s::%s", site.id, drive.id));
+        for (Drive drive : drives) {
+          Logging.connectors.info(String.format("O365: Seeding site %s on domain %s (id: %s, driveid: %s)", site.displayName, config.getOrganizationDomain(), site.id, drive.id));
+          activities.addSeedDocument(String.format("SITESEED::%s::%s", site.id, drive.id));
+        }
       }
     }
 
