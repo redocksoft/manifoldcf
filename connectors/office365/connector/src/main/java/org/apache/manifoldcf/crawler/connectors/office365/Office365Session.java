@@ -39,6 +39,21 @@ public class Office365Session
           "/IWConvertedForms"
   };
 
+  public enum SitePatternField {
+    DISPLAY_NAME,
+    WEB_URL;
+    public static SitePatternField fromString(String sitePatternFieldStr) {
+      try
+      {
+        return SitePatternField.valueOf(sitePatternFieldStr);
+      }
+      catch (Exception e)
+      {
+        return SitePatternField.DISPLAY_NAME;
+      }
+    }
+  }
+
   public Office365Session(Office365Config config)
   {
     this.config = config;
@@ -114,8 +129,9 @@ public class Office365Session
     for (int i = 0; i < spec.getChildCount(); i++) {
       SpecificationNode sn = spec.getChild(i);
       if (sn.getType().equals(Office365Config.SITE_ATTR)) {
-        String siteNamePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
-        return getSites(siteNamePattern);
+        String sitePattern = sn.getAttributeValue(Office365Config.SITE_PATTERN_ATTR);
+        String sitePatternFieldStr = sn.getAttributeValue(Office365Config.SITE_PATTERN_FIELD_ATTR);
+        return getSites(sitePattern, SitePatternField.fromString(sitePatternFieldStr));
       }
     }
     throw new IllegalArgumentException("Specification did not contain site pattern.");
@@ -133,23 +149,30 @@ public class Office365Session
   /**
    * Retrieve all the sites id that match the site name pattern.
    */
-  public List<Site> getSites(String siteNamePattern)
+  public List<Site> getSites(String sitePattern, SitePatternField sitePatternField)
     throws ClientException
   {
     List<Site> sites = new ArrayList<>();
 
     String siteSearch;
-    if (siteNamePattern.matches("[a-zA-Z0-9\\s]*")) siteSearch = siteNamePattern;
+    if (sitePattern.matches("[a-zA-Z0-9\\s]*")) siteSearch = sitePattern;
     else siteSearch = "*";
 
     ISiteCollectionRequest request = graphClient.sites().buildRequest(Collections.singletonList(new QueryOption("search", siteSearch)));
     ISiteCollectionPage page = request.get();
     while (page != null) {
       sites.addAll(page.getCurrentPage().stream().filter(s -> {
-        // even though I don't see a way to make displayName null on the MS UI, there are some sites with displayName null, ignore these
-        if(s.displayName == null) return false;
-        if (siteSearch.equals("*")) return s.displayName.matches(siteNamePattern);
-        else return s.displayName.equals(siteSearch); // shouldn't this always be the case?
+        if (sitePatternField != SitePatternField.WEB_URL)
+        {
+          // even though I don't see a way to make displayName null on the MS UI, there are some sites with displayName null, ignore these
+          if (s.displayName == null) return false;
+          if (siteSearch.equals("*")) return s.displayName.matches(sitePattern);
+          else return s.displayName.equals(siteSearch); // shouldn't this always be the case?
+        }
+        else
+        {
+          return s.webUrl.matches(sitePattern);
+        }
       }).collect(Collectors.toList()));
       page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
     }
