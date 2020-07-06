@@ -49,6 +49,8 @@ public class Office365Session
       }
       catch (Exception e)
       {
+        // If string is empty (parsed from a previous definition) or else undefined, revert to previous default
+        // method of matching against the DisplayName of the site.
         return SitePatternField.DISPLAY_NAME;
       }
     }
@@ -129,8 +131,8 @@ public class Office365Session
     for (int i = 0; i < spec.getChildCount(); i++) {
       SpecificationNode sn = spec.getChild(i);
       if (sn.getType().equals(Office365Config.SITE_ATTR)) {
-        String sitePattern = sn.getAttributeValue(Office365Config.SITE_PATTERN_ATTR);
-        String sitePatternFieldStr = sn.getAttributeValue(Office365Config.SITE_PATTERN_FIELD_ATTR);
+        String sitePattern = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR);
+        String sitePatternFieldStr = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR);
         return getSites(sitePattern, SitePatternField.fromString(sitePatternFieldStr));
       }
     }
@@ -162,16 +164,16 @@ public class Office365Session
     ISiteCollectionPage page = request.get();
     while (page != null) {
       sites.addAll(page.getCurrentPage().stream().filter(s -> {
-        if (sitePatternField != SitePatternField.WEB_URL)
+        switch (sitePatternField)
         {
-          // even though I don't see a way to make displayName null on the MS UI, there are some sites with displayName null, ignore these
-          if (s.displayName == null) return false;
-          if (siteSearch.equals("*")) return s.displayName.matches(sitePattern);
-          else return s.displayName.equals(siteSearch); // shouldn't this always be the case?
-        }
-        else
-        {
-          return s.webUrl.matches(sitePattern);
+          case DISPLAY_NAME:
+            // even though I don't see a way to make displayName null on the MS UI, there are some sites with displayName null, ignore these
+            if (s.displayName == null) return false;
+            if (siteSearch.equals("*")) return s.displayName.matches(sitePattern);
+            else return s.displayName.equals(siteSearch); // shouldn't this always be the case?
+          case WEB_URL:
+            return s.webUrl.matches(sitePattern);
+          default: throw new IllegalArgumentException("Unrecognized site pattern field");
         }
       }).collect(Collectors.toList()));
       page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();

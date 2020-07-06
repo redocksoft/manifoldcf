@@ -528,8 +528,8 @@ public class Office365Connector extends BaseRepositoryConnector
       if (sn.getType().equals(Office365Config.SITE_ATTR))
       {
         Map<String,Object> site = new HashMap();
-        site.put("NAME_PATTERN", sn.getAttributeValue(Office365Config.SITE_PATTERN_ATTR));
-        site.put("NAME_PATTERN_FIELD", sn.getAttributeValue(Office365Config.SITE_PATTERN_FIELD_ATTR));
+        site.put("NAME_PATTERN", sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR));
+        site.put("NAME_PATTERN_FIELD", sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR));
         site.put("STATUS", sn.getAttributeValue(Office365Config.SITE_STATUS_ATTR));
         sites.add(site);
       }
@@ -569,8 +569,8 @@ public class Office365Connector extends BaseRepositoryConnector
           continue;
         }
         SpecificationNode node = new SpecificationNode(Office365Config.SITE_ATTR);
-        node.setAttribute(Office365Config.SITE_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_PATTERN_ATTR));
-        node.setAttribute(Office365Config.SITE_PATTERN_FIELD_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_PATTERN_FIELD_ATTR));
+        node.setAttribute(Office365Config.SITE_NAME_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_ATTR));
+        node.setAttribute(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_FIELD_ATTR));
         node.setAttribute(Office365Config.SITE_STATUS_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_STATUS_ATTR));
 
         ds.addChild(ds.getChildCount(), node);
@@ -581,10 +581,10 @@ public class Office365Connector extends BaseRepositoryConnector
       String op = variableContext.getParameter(sitePrefix + "op");
       if (op != null && op.equals("Add")) {
         SpecificationNode node = new SpecificationNode(Office365Config.SITE_ATTR);
-        String sitePattern = variableContext.getParameter(sitePrefix + Office365Config.SITE_PATTERN_ATTR);
-        node.setAttribute(Office365Config.SITE_PATTERN_ATTR, sitePattern);
-        String sitePatternFieldStr = variableContext.getParameter(sitePrefix + Office365Config.SITE_PATTERN_FIELD_ATTR);
-        node.setAttribute(Office365Config.SITE_PATTERN_FIELD_ATTR, sitePatternFieldStr);
+        String sitePattern = variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_ATTR);
+        node.setAttribute(Office365Config.SITE_NAME_PATTERN_ATTR, sitePattern);
+        String sitePatternFieldStr = variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_FIELD_ATTR);
+        node.setAttribute(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR, sitePatternFieldStr);
 
         // Validate the endpoint exists when adding
         try {

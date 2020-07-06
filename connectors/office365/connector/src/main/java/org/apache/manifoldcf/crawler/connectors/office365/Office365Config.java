@@ -8,9 +8,12 @@ import java.util.Locale;
 public class Office365Config extends Office365Param {
 
   public static final String SITE_ATTR = "site";
-  public static final String SITE_PATTERN_ATTR = "namepattern";
-  public static final String SITE_PATTERN_FIELD_ATTR = "namepatternfield";
   public static final String SITE_STATUS_ATTR = "status";
+  // This setting was used on the site name only before, but it can now apply to the Web URL also.
+  // For backward compatibility, this was left with original names.
+  // TODO: refactor the variable and field names to something like SITE_PATTERN_ATTR and "sitepattern".
+  public static final String SITE_NAME_PATTERN_ATTR = "namepattern";
+  public static final String SITE_NAME_PATTERN_FIELD_ATTR = "namepatternfield";
 
   final private static ParameterEnum[] CONFIGURATIONLIST =
     {
