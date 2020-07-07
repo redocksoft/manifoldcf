@@ -25,6 +25,7 @@
   #foreach ($site in $SITES)
     <tr>
       <td><nobr>$Encoder.bodyEscape($site.get('NAME_PATTERN'))</nobr></td>
+      <td><nobr>$Encoder.bodyEscape($site.get('NAME_PATTERN_FIELD'))</nobr></td>
       <td><nobr>$site.get('STATUS')</nobr></td>
     </tr>
   #end

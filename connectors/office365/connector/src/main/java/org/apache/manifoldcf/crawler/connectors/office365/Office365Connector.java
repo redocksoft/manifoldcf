@@ -529,6 +529,7 @@ public class Office365Connector extends BaseRepositoryConnector
       {
         Map<String,Object> site = new HashMap();
         site.put("NAME_PATTERN", sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR));
+        site.put("NAME_PATTERN_FIELD", sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR));
         site.put("STATUS", sn.getAttributeValue(Office365Config.SITE_STATUS_ATTR));
         sites.add(site);
       }
@@ -569,6 +570,7 @@ public class Office365Connector extends BaseRepositoryConnector
         }
         SpecificationNode node = new SpecificationNode(Office365Config.SITE_ATTR);
         node.setAttribute(Office365Config.SITE_NAME_PATTERN_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_ATTR));
+        node.setAttribute(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_FIELD_ATTR));
         node.setAttribute(Office365Config.SITE_STATUS_ATTR, variableContext.getParameter(sitePrefix + Office365Config.SITE_STATUS_ATTR));
 
         ds.addChild(ds.getChildCount(), node);
@@ -579,19 +581,21 @@ public class Office365Connector extends BaseRepositoryConnector
       String op = variableContext.getParameter(sitePrefix + "op");
       if (op != null && op.equals("Add")) {
         SpecificationNode node = new SpecificationNode(Office365Config.SITE_ATTR);
-        String siteNamePattern = variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_ATTR);
-        node.setAttribute(Office365Config.SITE_NAME_PATTERN_ATTR, siteNamePattern);
+        String sitePattern = variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_ATTR);
+        node.setAttribute(Office365Config.SITE_NAME_PATTERN_ATTR, sitePattern);
+        String sitePatternFieldStr = variableContext.getParameter(sitePrefix + Office365Config.SITE_NAME_PATTERN_FIELD_ATTR);
+        node.setAttribute(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR, sitePatternFieldStr);
 
         // Validate the endpoint exists when adding
         try {
-          List<Site> sites = session.getSites(siteNamePattern);
+          List<Site> sites = session.getSites(sitePattern, Office365Session.SitePatternField.fromString(sitePatternFieldStr));
           if (sites == null || sites.size() == 0) {
             node.setAttribute(Office365Config.SITE_STATUS_ATTR, "Site not found.");
           } else {
             node.setAttribute(Office365Config.SITE_STATUS_ATTR,
-              "<ul>" +
-                sites.stream().map(s -> String.format("<li>%s</li>", s.displayName)).collect(Collectors.joining()) +
-              "</ul>"
+              "<table>" +
+                sites.stream().map(s -> String.format("<tr><td>%s</td><td>%s</td></tr>", s.displayName, s.webUrl)).collect(Collectors.joining()) +
+              "</table>"
             );
           }
         } catch (Exception e) {
