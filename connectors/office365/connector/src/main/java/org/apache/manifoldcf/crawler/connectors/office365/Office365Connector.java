@@ -529,8 +529,10 @@ public class Office365Connector extends BaseRepositoryConnector
       {
         Map<String,Object> site = new HashMap();
         site.put("NAME_PATTERN", sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_ATTR));
-        site.put("NAME_PATTERN_FIELD", sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR));
         site.put("STATUS", sn.getAttributeValue(Office365Config.SITE_STATUS_ATTR));
+        String siteNamePatternField = sn.getAttributeValue(Office365Config.SITE_NAME_PATTERN_FIELD_ATTR);
+        if (siteNamePatternField == null) { siteNamePatternField = ""; }
+        site.put("NAME_PATTERN_FIELD", siteNamePatternField);
         sites.add(site);
       }
     }
