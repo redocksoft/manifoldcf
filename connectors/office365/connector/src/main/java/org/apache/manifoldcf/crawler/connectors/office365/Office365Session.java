@@ -159,25 +159,52 @@ public class Office365Session
 
   public List<DriveItem> getDriveItems(String driveId) {
     List<DriveItem> items = new ArrayList<>();
-    IDriveItemCollectionRequest request = graphClient.drives(driveId).root().children().buildRequest();
-    IDriveItemCollectionPage page = request.get();
-    while (page != null) {
-      items.addAll(page.getCurrentPage());
-      page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
+    try {
+      IDriveItemCollectionRequest request = graphClient.drives(driveId).root().children().buildRequest();
+      IDriveItemCollectionPage page = request.get();
+      while (page != null) {
+        items.addAll(page.getCurrentPage());
+        page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
+      }
+      return items;
     }
-    return items;
+    catch (GraphServiceException e) {
+      if (e.getResponseCode() == 404) {
+        Logging.connectors.warn("O365: MSGraph Not Found (404) in getDriveItems, drive (" + driveId + ") \n" + e.getMessage());
+        return items;
+      } else if (e.getResponseCode() == 403) {
+        Logging.connectors.warn("O365: MSGraph Permission Denied (403) in getDriveItems, drive (" + driveId + ") \n" + e.getMessage());
+        return items;
+      }
+      else {
+        throw e;
+      }
+    }
   }
 
   public void getDriveItemsUnderItem(String driveId, String itemId, XThreadObjectBuffer<DriveItem> b)
       throws InterruptedException
   {
-    IDriveItemCollectionRequest request = graphClient.drives(driveId).items(itemId).children().buildRequest();
-    IDriveItemCollectionPage page = request.get();
-    while (page != null) {
-      for (DriveItem driveItem : page.getCurrentPage()) {
-        b.add(driveItem);
+    try {
+      IDriveItemCollectionRequest request = graphClient.drives(driveId).items(itemId).children().buildRequest();
+      IDriveItemCollectionPage page = request.get();
+      while (page != null) {
+        for (DriveItem driveItem : page.getCurrentPage()) {
+          b.add(driveItem);
+        }
+        page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
       }
-      page = page.getNextPage() == null ? null : page.getNextPage().buildRequest().get();
+    }
+    catch (GraphServiceException e) {
+      if (e.getResponseCode() == 404) {
+        Logging.connectors.warn("O365: MSGraph Not Found (404) in getDriveItemsUnderItem, drive (" + driveId + "), item (" + itemId + ")\n" + e.getMessage());
+        return;
+      } else if (e.getResponseCode() == 403) {
+        Logging.connectors.warn("O365: MSGraph Permission Denied (403) in getDriveItemsUnderItem, drive (" + driveId + "), item (" + itemId + ")\n" + e.getMessage());
+        return;
+      } else {
+        throw e;
+      }
     }
   }
 
