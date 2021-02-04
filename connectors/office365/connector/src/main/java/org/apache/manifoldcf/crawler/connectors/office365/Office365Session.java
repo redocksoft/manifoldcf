@@ -157,7 +157,7 @@ public class Office365Session
     List<Site> sites = new ArrayList<>();
 
     String siteSearch;
-    if (sitePattern.matches("[a-zA-Z0-9\\s]*")) siteSearch = sitePattern;
+    if (sitePattern.matches("[a-zA-Z0-9\\s]*")) siteSearch = String.format("{%s}", sitePattern);
     else siteSearch = "*";
 
     ISiteCollectionRequest request = graphClient.sites().buildRequest(Collections.singletonList(new QueryOption("search", siteSearch)));
@@ -170,7 +170,7 @@ public class Office365Session
             // even though I don't see a way to make displayName null on the MS UI, there are some sites with displayName null, ignore these
             if (s.displayName == null) return false;
             if (siteSearch.equals("*")) return s.displayName.matches(sitePattern);
-            else return s.displayName.equals(siteSearch); // shouldn't this always be the case?
+            else return s.displayName.equals(sitePattern); // site pattern of "A B" matches "A B C" so this makes it an exact match
           case WEB_URL:
             return s.webUrl.matches(sitePattern);
           default: throw new IllegalArgumentException("Unrecognized site pattern field");
