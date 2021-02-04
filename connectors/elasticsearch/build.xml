@@ -35,7 +35,7 @@
     <target name="download-dependencies">
         
         <mkdir dir="build/download"/>
-        <get src="http://download.elasticsearch.org/elasticsearch/elasticsearch/elasticsearch-${elasticsearch.version}.tar.gz" 
+        <get src="https://download.elasticsearch.org/elasticsearch/elasticsearch/elasticsearch-${elasticsearch.version}.tar.gz"
             dest="build/download/elasticsearch.tar.gz"/>
         <gunzip src="build/download/elasticsearch.tar.gz"/>
         <untar src="build/download/elasticsearch.tar" dest="test-materials"/>
