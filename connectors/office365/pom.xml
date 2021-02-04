@@ -26,6 +26,17 @@
 
     <packaging>jar</packaging>
 
+    <repositories>
+      <repository>
+        <id>redock-repo-snapshots</id>
+        <url>https://nexus.redock.com/repository/maven-snapshots/</url>
+      </repository>
+      <repository>
+        <id>redock-repo</id>
+        <url>https://nexus.redock.com/repository/maven-public/</url>
+      </repository>
+    </repositories>
+
     <developers>
         <developer>
             <name>Pierre-Olivier Charlebois</name>
