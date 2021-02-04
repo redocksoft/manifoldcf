@@ -20,11 +20,13 @@
   </tr>
   <tr>
       <td><b>$ResourceBundle.getString('office365.SiteIncludePattern')</b></td>
+      <td><b>$ResourceBundle.getString('office365.SiteIncludePatternField')</b></td>
       <td><b>$ResourceBundle.getString('office365.RegisteredSites')</b></td>
    </tr>
   #foreach ($site in $SITES)
     <tr>
       <td><nobr>$Encoder.bodyEscape($site.get('NAME_PATTERN'))</nobr></td>
+      <td><nobr>$Encoder.bodyEscape($site.get('NAME_PATTERN_FIELD'))</nobr></td>
       <td><nobr>$site.get('STATUS')</nobr></td>
     </tr>
   #end

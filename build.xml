@@ -110,7 +110,7 @@
     <property name="jetty-jsp-jdt.version" value="2.3.3"/>
     <property name="jetty-schemas.version" value="3.1.M0"/>
     <property name="alfresco-indexer.version" value="0.8.1"/>
-    <property name="gson.version" value="2.8.0"/>
+    <property name="gson.version" value="2.8.6"/>
     <property name="guava.version" value="25.1-jre"/>
     <property name="mockito.version" value="1.9.5"/>
     <property name="wiremock.version" value="2.5.1"/>
@@ -191,8 +191,8 @@
     <property name="rat_bootstrap_url1" value="http://repo1.maven.org/maven2"/>
     <!-- you might need to tweak this from china so it works -->
     <property name="rat_bootstrap_url2" value="http://uk.maven.org/maven2"/>
-    <property name="microsoft.graph.version" value="1.7.1"/>
-    <property name="microsoft.graph.core.version" value="1.0.0"/>
+    <property name="microsoft.graph.version" value="2.6.0"/>
+    <property name="microsoft.graph.core.version" value="1.0.7"/>
 
   
     <macrodef name="rat-download">

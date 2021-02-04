@@ -23,6 +23,7 @@
   <tr>
     <td></td>
     <td><b>$ResourceBundle.getString('office365.SiteIncludePattern')</b></td>
+    <td><b>$ResourceBundle.getString('office365.SiteIncludePatternField')</b></td>
     <td><b>$ResourceBundle.getString('office365.RegisteredSites')</b></td>
    </tr>
   #set($siteNum = 0)
@@ -36,6 +37,10 @@
       <td>
         $site.get('NAME_PATTERN')
         <input  type="hidden" name="s${SEQNUM}_site_${siteNum}_namepattern" value="$site.get('NAME_PATTERN')" />
+      </td>
+      <td>
+        $site.get('NAME_PATTERN_FIELD')
+        <input  type="hidden" name="s${SEQNUM}_site_${siteNum}_namepatternfield" value="$site.get('NAME_PATTERN_FIELD')" />
       </td>
       <td>
         <nobr>$site.get('STATUS')</nobr>
@@ -59,6 +64,12 @@
     <td class="value">
       <input type="text" size="20" name="s${SEQNUM}_site_namepattern" value=".*"/>
     </td>
+    <td class="value">
+      <input type="radio" id="DISPLAY_NAME" name="s${SEQNUM}_site_namepatternfield" value="DISPLAY_NAME"/>
+      <label for="DISPLAY_NAME">Site Display Name</label><br/>
+      <input type="radio" id="WEB_URL" name="s${SEQNUM}_site_namepatternfield" value="WEB_URL"/>
+      <label for="WEB_URL">Site Web URL</label><br/>
+    </td>
     <td></td>
   </tr>
 </table>
@@ -67,6 +78,7 @@
   #set($siteNum = 0)
   #foreach ($site in $SITES)
     <input type="hidden" name="s${SEQNUM}_site_${siteNum}_namepattern" value="$site.get('NAME_PATTERN')"/>
+    <input type="hidden" name="s${SEQNUM}_site_${siteNum}_namepatternfield" value="$site.get('NAME_PATTERN_FIELD')"/>
     <input type="hidden" name="s${SEQNUM}_site_${siteNum}_status" value="$site.get('STATUS')"/>
     #set($siteNum = $siteNum + 1)
   #end
