@@ -82,16 +82,17 @@ public class Office365Connector extends BaseRepositoryConnector
   private static final String EDIT_SPEC_FORWARD = "editSpecification.html";
 
   private static final String[] SITE_DATA_NAMES = {
-          "siteId",
-          "siteName",
-          "siteDisplayName",
-          "siteUrl"
+    "siteId",
+    "siteName",
+    "siteDisplayName",
+    "siteUrl",
   };
 
-  private Cache<String, Site> sitesCache = CacheBuilder.newBuilder()
-          .maximumSize(1000)
-          .expireAfterWrite(10, TimeUnit.MINUTES)
-          .build();
+  @SuppressWarnings("UnstableApiUsage")
+  private final Cache<String, Site> sitesCache = CacheBuilder.newBuilder()
+    .maximumSize(1000)
+    .expireAfterWrite(10, TimeUnit.MINUTES)
+    .build();
 
 
   public Office365Connector()
