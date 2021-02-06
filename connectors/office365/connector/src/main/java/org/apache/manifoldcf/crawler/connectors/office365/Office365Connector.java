@@ -648,15 +648,9 @@ public class Office365Connector extends BaseRepositoryConnector
     try {
       return sitesCache.get(id, () -> new Office365ThreadedBlock<>(() -> session.siteById(id)).runBlocking());
     } catch (ExecutionException e) {
-      if(e.getCause() instanceof ManifoldCFException) {
-        throw (ManifoldCFException)e.getCause();
-      } else if(e.getCause() instanceof ServiceInterruption) {
-        throw (ServiceInterruption)e.getCause();
-      } else if(e.getCause() instanceof RuntimeException) {
-        throw (RuntimeException) e.getCause();
-      } else {
-        throw new ManifoldCFException("Unable to obtain site by id: "+e.getMessage(), e);
-      }
+      // always rethrows
+      Office365ErrorHandling.handleExecutionException(e);
+      throw new ManifoldCFException(e.getCause());
     }
   }
 

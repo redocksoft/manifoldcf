@@ -30,7 +30,7 @@ public class Office365ThreadedBlock<T> extends ThreadedBlock<T> {
 
   @Override
   protected void handleOtherException(Exception e) throws ManifoldCFException, ServiceInterruption {
-    Office365ErrorHandling.handleOtherException(e);
+    Office365ErrorHandling.handleGraphExceptions(e);
     super.handleOtherException(e);
   }
 }

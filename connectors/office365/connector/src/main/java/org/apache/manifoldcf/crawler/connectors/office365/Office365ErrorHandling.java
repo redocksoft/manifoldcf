@@ -26,6 +26,7 @@ import org.apache.manifoldcf.crawler.system.Logging;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.util.concurrent.ExecutionException;
 
 public class Office365ErrorHandling {
   public static boolean isThrottle(Exception e) {
@@ -54,7 +55,28 @@ public class Office365ErrorHandling {
     return cause instanceof IOException;
   }
 
+  public static void handleExecutionException(ExecutionException e) throws ManifoldCFException, ServiceInterruption {
+    if(e.getCause() instanceof ManifoldCFException) {
+      throw (ManifoldCFException)e.getCause();
+    } else if(e.getCause() instanceof ServiceInterruption) {
+      throw (ServiceInterruption)e.getCause();
+    } else {
+      handleGraphExceptions(e);
+      handleOtherException(e);
+    }
+  }
+
   public static void handleOtherException(Exception e) throws ManifoldCFException, ServiceInterruption {
+    if (e instanceof ManifoldCFException) {
+      throw ((ManifoldCFException) e);
+    } else if (e instanceof ServiceInterruption) {
+      throw ((ServiceInterruption) e);
+    } else {
+      throw new ManifoldCFException(e);
+    }
+  }
+
+  public static void handleGraphExceptions(Exception e) throws ManifoldCFException, ServiceInterruption {
     if (isThrottle(e)) {
       String errorMessage = String.format("O365: exception resulting in throttle: %s with message: %s", e.getClass().getSimpleName(), e.getMessage());
       Logging.connectors.warn(errorMessage, e);
