@@ -233,6 +233,10 @@ public class Office365Session
     }
   }
 
+  public Drive driveById(String id) {
+    return graphClient.drives(id).buildRequest().get();
+  }
+
   public List<Drive> getDrivesForSite(String siteId)
           throws ClientException
   {

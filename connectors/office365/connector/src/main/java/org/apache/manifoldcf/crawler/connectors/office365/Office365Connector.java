@@ -81,18 +81,26 @@ public class Office365Connector extends BaseRepositoryConnector
   private static final String EDIT_SPEC_HEADER_FORWARD = "editSpecification.js.html";
   private static final String EDIT_SPEC_FORWARD = "editSpecification.html";
 
-  private static final String[] SITE_DATA_NAMES = {
-          "siteId",
-          "siteName",
-          "siteDisplayName",
-          "siteUrl"
+  private static final String[] PARENT_DATA_NAMES = {
+    "siteId",
+    "siteName",
+    "siteDisplayName",
+    "siteUrl",
+    "driveName",
+    "driveUrl"
   };
 
-  private Cache<String, Site> sitesCache = CacheBuilder.newBuilder()
-          .maximumSize(1000)
-          .expireAfterWrite(10, TimeUnit.MINUTES)
-          .build();
+  @SuppressWarnings("UnstableApiUsage")
+  private final Cache<String, Site> sitesCache = CacheBuilder.newBuilder()
+    .maximumSize(1000)
+    .expireAfterAccess(10, TimeUnit.MINUTES)
+    .build();
 
+  @SuppressWarnings("UnstableApiUsage")
+  private final Cache<String, Drive> drivesCache = CacheBuilder.newBuilder()
+    .maximumSize(1000)
+    .expireAfterAccess(10, TimeUnit.MINUTES)
+    .build();
 
   public Office365Connector()
   {
@@ -252,7 +260,7 @@ public class Office365Connector extends BaseRepositoryConnector
         for (DriveItem item : new Office365ThreadedBlock<>(() -> session.getDriveItems(driveId)).runBlocking()) {
           String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, item.id);
           activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CONTAINED,
-                  SITE_DATA_NAMES, siteData(siteById(siteId)));
+            PARENT_DATA_NAMES, parentData(siteById(siteId), driveById(driveId)));
         }
       } else if (documentIdentifier.startsWith("DOC::")) {
         String itemId = idComponents[3];
@@ -272,7 +280,7 @@ public class Office365Connector extends BaseRepositoryConnector
           driveItemSupplier.onFetch(childItem -> {
             String childDocId = String.format("DOC::%s::%s::%s", siteId, driveId, childItem.id);
             activities.addDocumentReference(childDocId, documentIdentifier, RELATIONSHIP_CHILD,
-                    SITE_DATA_NAMES, siteData(siteById(siteId)));
+              PARENT_DATA_NAMES, parentData(siteById(siteId), driveById(driveId)));
           });
         } else {
           // file, could be null
@@ -392,13 +400,22 @@ public class Office365Connector extends BaseRepositoryConnector
       rd.setOriginalSize(driveItem.size);
       rd.setMimeType(driveItem.file.mimeType);
 
-      // Harvest human readable paths to set in the rootPath (domain & site) and sourcePath (folder structure)
+      // Harvest human readable paths to set in the rootPath (domain, site, and drive) and sourcePath (folder structure)
       List<String> rootPath = new ArrayList<>();
       rootPath.add(getConfigParameters().getOrganizationDomain());
 
       String[] siteDisplayName = activities.retrieveParentData(documentIdentifier, "siteDisplayName");
       if(siteDisplayName != null) {
         rootPath.addAll(Arrays.asList(siteDisplayName));
+      }
+
+      String[] driveName = activities.retrieveParentData(documentIdentifier, "driveName");
+      if(driveName != null && driveName.length > 0) {
+        rootPath.addAll(Arrays.asList(driveName));
+      } else {
+        // for backward compat, we've recently added new drive parent data so older docs won't have them in the carry-down data, retrieve them here
+        Drive drive = driveById(driveId);
+        rootPath.add(drive.name);
       }
 
       rd.setRootPath(rootPath);
@@ -412,9 +429,20 @@ public class Office365Connector extends BaseRepositoryConnector
       rd.setSourcePath(sourcePath);
 
       // carry-down data
-      for (String dataName : SITE_DATA_NAMES) {
+      for (String dataName : PARENT_DATA_NAMES) {
         String[] dataValue = activities.retrieveParentData(documentIdentifier, dataName);
-        rd.addField(dataName, dataValue);
+        // for backward compat, we've recently added new drive parent data so older docs won't have them in the carry-down data, retrieve them here
+        if(dataValue.length > 0) {
+          rd.addField(dataName, dataValue);
+        } else {
+          if (dataName.equals("driveName")) {
+            Drive drive = driveById(driveId);
+            rd.addField(dataName, new String[] { drive.name });
+          } else if (dataName.equals("driveUrl")) {
+            Drive drive = driveById(driveId);
+            rd.addField(dataName, new String[] { drive.webUrl });
+          }
+        }
       }
 
       // Set other source fields
@@ -645,26 +673,35 @@ public class Office365Connector extends BaseRepositoryConnector
 
   private Site siteById(String id) throws ManifoldCFException, ServiceInterruption {
     try {
+      //noinspection UnstableApiUsage
       return sitesCache.get(id, () -> new Office365ThreadedBlock<>(() -> session.siteById(id)).runBlocking());
     } catch (ExecutionException e) {
-      if(e.getCause() instanceof ManifoldCFException) {
-        throw (ManifoldCFException)e.getCause();
-      } else if(e.getCause() instanceof ServiceInterruption) {
-        throw (ServiceInterruption)e.getCause();
-      } else if(e.getCause() instanceof RuntimeException) {
-        throw (RuntimeException) e.getCause();
-      } else {
-        throw new ManifoldCFException("Unable to obtain site by id: "+e.getMessage(), e);
-      }
+      // always rethrows
+      Office365ErrorHandling.handleExecutionException(e);
+      throw new ManifoldCFException(e.getCause());
     }
   }
 
-  private String[][] siteData(Site site) {
-    return new String[][]{
-            new String[]{site.id},
-            new String[]{site.name},
-            new String[]{site.displayName},
-            new String[]{site.webUrl}
+  private Drive driveById(String id) throws ManifoldCFException, ServiceInterruption {
+    try {
+      //noinspection UnstableApiUsage
+      return drivesCache.get(id, () -> new Office365ThreadedBlock<>(() -> session.driveById(id)).runBlocking());
+    } catch (ExecutionException e) {
+      // always rethrows
+      Office365ErrorHandling.handleExecutionException(e);
+      throw new ManifoldCFException(e.getCause());
+    }
+  }
+
+  private String[][] parentData(Site site, Drive drive) {
+    // match up with PARENT_DATA_NAMES
+    return new String[][] {
+      new String[]{site.id},
+      new String[]{site.name},
+      new String[]{site.displayName},
+      new String[]{site.webUrl},
+      new String[]{drive.name},
+      new String[]{drive.webUrl},
     };
   }
 }

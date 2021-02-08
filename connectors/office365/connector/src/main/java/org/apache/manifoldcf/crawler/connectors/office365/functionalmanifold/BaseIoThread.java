@@ -19,6 +19,7 @@ package org.apache.manifoldcf.crawler.connectors.office365.functionalmanifold;
 
 import org.apache.manifoldcf.agents.interfaces.ServiceInterruption;
 import org.apache.manifoldcf.core.interfaces.ManifoldCFException;
+import org.apache.manifoldcf.crawler.connectors.office365.Office365ErrorHandling;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
@@ -53,12 +54,6 @@ abstract class BaseIoThread extends Thread {
   protected void handleOtherException(Exception e)
     throws ManifoldCFException, ServiceInterruption
   {
-    if (e instanceof ManifoldCFException) {
-      throw ((ManifoldCFException) e);
-    } else if (e instanceof ServiceInterruption) {
-      throw ((ServiceInterruption) e);
-    } else {
-      throw new ManifoldCFException(e);
-    }
+    Office365ErrorHandling.handleOtherException(e);
   }
 }
